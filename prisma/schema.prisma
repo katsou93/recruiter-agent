@@ -1,0 +1,153 @@
+// This is your Prisma schema file
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Candidate {
+  id           String   @id @default(cuid())
+  firstName    String
+  lastName     String
+  email        String?
+  phone        String?
+  linkedinUrl  String?
+  xingUrl      String?
+  currentTitle String?
+  currentCompany String?
+  location     String?
+  skills       String[] 
+  notes        String?
+  status       CandidateStatus @default(NEW)
+  source       String?   // "linkedin", "stepstone", "xing", "manual"
+  salary       String?
+  availability String?
+  
+  outreaches   Outreach[]
+  placements   Placement[]
+  
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@map("candidates")
+}
+
+model Company {
+  id           String   @id @default(cuid())
+  name         String
+  industry     String?
+  website      String?
+  location     String?
+  size         String?
+  notes        String?
+  contactName  String?
+  contactEmail String?
+  contactPhone String?
+  
+  jobs         Job[]
+  placements   Placement[]
+  
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@map("companies")
+}
+
+model Job {
+  id          String   @id @default(cuid())
+  title       String
+  description String?
+  salary      String?
+  location    String?
+  remote      Boolean  @default(false)
+  status      JobStatus @default(OPEN)
+  
+  company     Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  companyId   String
+  
+  outreaches  Outreach[]
+  placements  Placement[]
+  
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@map("jobs")
+}
+
+model Outreach {
+  id           String   @id @default(cuid())
+  subject      String
+  body         String
+  status       OutreachStatus @default(DRAFT)
+  sentAt       DateTime?
+  repliedAt    DateTime?
+  
+  candidate    Candidate @relation(fields: [candidateId], references: [id], onDelete: Cascade)
+  candidateId  String
+  job          Job?      @relation(fields: [jobId], references: [id])
+  jobId        String?
+  
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@map("outreaches")
+}
+
+model Placement {
+  id          String   @id @default(cuid())
+  startDate   DateTime?
+  salary      String?
+  fee         String?
+  notes       String?
+  
+  candidate   Candidate @relation(fields: [candidateId], references: [id])
+  candidateId String
+  company     Company   @relation(fields: [companyId], references: [id])
+  companyId   String
+  job         Job       @relation(fields: [jobId], references: [id])
+  jobId       String
+  
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@map("placements")
+}
+
+model ChatMessage {
+  id        String   @id @default(cuid())
+  role      String   // "user" | "assistant"
+  content   String
+  sessionId String
+  
+  createdAt DateTime @default(now())
+
+  @@map("chat_messages")
+}
+
+enum CandidateStatus {
+  NEW
+  CONTACTED
+  REPLIED
+  INTERVIEW
+  OFFER
+  PLACED
+  REJECTED
+  INACTIVE
+}
+
+enum JobStatus {
+  OPEN
+  FILLED
+  PAUSED
+  CLOSED
+}
+
+enum OutreachStatus {
+  DRAFT
+  SENT
+  REPLIED
+  NO_REPLY
+}
