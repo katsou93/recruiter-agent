@@ -7,7 +7,7 @@ import { prisma } from "@/lib/prisma";
 export const saveCandidateTool = tool({
   description:
     "Speichert einen neuen Kandidaten in der Datenbank.",
-  parameters: z.object({
+inputSchema: z.object({
     firstName: z.string(),
     lastName: z.string(),
     email: z.string().optional(),
@@ -37,7 +37,7 @@ export const saveCandidateTool = tool({
 
 export const searchCandidatesTool = tool({
   description: "Sucht in der internen Datenbank nach Kandidaten.",
-  parameters: z.object({
+  inputSchema: z.object({
     query: z.string().optional(),
     skills: z.array(z.string()).optional(),
     location: z.string().optional(),
@@ -83,7 +83,7 @@ export const searchCandidatesTool = tool({
 
 export const updateCandidateStatusTool = tool({
   description: "Aktualisiert den Status oder Notizen eines Kandidaten.",
-  parameters: z.object({
+  inputSchema: z.object({
     candidateId: z.string(),
     status: z
       .enum(["NEW", "CONTACTED", "REPLIED", "INTERVIEW", "OFFER", "PLACED", "REJECTED", "INACTIVE"])
@@ -108,7 +108,7 @@ export const updateCandidateStatusTool = tool({
 export const draftOutreachTool = tool({
   description:
     "Erstellt einen personalisierten Anschreiben-Entwurf. Wird als DRAFT gespeichert – du versendest ihn manuell über Outlook.",
-  parameters: z.object({
+  inputSchema: z.object({
     candidateId: z.string(),
     jobTitle: z.string(),
     companyName: z.string(),
@@ -150,7 +150,7 @@ export const draftOutreachTool = tool({
 
 export const saveCompanyTool = tool({
   description: "Speichert ein neues Unternehmen oder Kunden in der Datenbank.",
-  parameters: z.object({
+  inputSchema: z.object({
     name: z.string(),
     industry: z.string().optional(),
     website: z.string().optional(),
@@ -173,7 +173,7 @@ export const saveCompanyTool = tool({
 
 export const saveJobTool = tool({
   description: "Legt eine neue offene Stelle für ein Unternehmen an.",
-  parameters: z.object({
+  inputSchema: z.object({
     companyId: z.string(),
     title: z.string(),
     description: z.string().optional(),
@@ -195,7 +195,7 @@ export const saveJobTool = tool({
 
 export const getPipelineTool = tool({
   description: "Gibt eine Übersicht der aktuellen Kandidaten-Pipeline zurück.",
-  parameters: z.object({}),
+  inputSchema: z.object({}),
   execute: async () => {
     const pipeline = await prisma.candidate.groupBy({
       by: ["status"],
@@ -222,7 +222,7 @@ export const getPipelineTool = tool({
 
 export const searchCompaniesTool = tool({
   description: "Sucht in der internen Datenbank nach Unternehmen.",
-  parameters: z.object({
+  inputSchema: z.object({
     query: z.string().optional(),
     location: z.string().optional(),
   }),
