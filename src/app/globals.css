@@ -1,6 +1,12 @@
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+@import "tailwindcss";
+
+@theme inline {
+    --font-sans: var(--font-inter);
+}
+
+body {
+    font-family: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
+}
 
 * {
   box-sizing: border-box;
