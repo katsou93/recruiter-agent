@@ -151,3 +151,16 @@ enum OutreachStatus {
   REPLIED
   NO_REPLY
 }
+
+model Integration {
+  id           String    @id @default(cuid())
+  provider     String    @unique
+  accessToken  String
+  refreshToken String?
+  expiresAt    DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("integrations")
+}
