@@ -255,6 +255,97 @@ export const searchCompaniesTool = tool({
   },
 });
 
+export const searchVincereCandidatesTool = tool({
+    description:
+          "Sucht Kandidaten direkt im Vincere-System (ATS) nach Stichwort, z.B. Name, Skill oder Jobtitel.",
+    inputSchema: z.object({
+          keyword: z.string(),
+          rows: z.number().optional().default(10),
+    }),
+    execute: async ({ keyword, rows }) => {
+          try {
+                  const { searchVincereCandidates } = await import("@/lib/vincere");
+                  const items = await searchVincereCandidates(keyword, rows ?? 10);
+                  return {
+                            count: items.length,
+                            candidates: items.map((c) => ({
+                                        id: c.id,
+                                        name: c.name,
+                                        email: c.email,
+                                        title: c.current_job_title,
+                                        company: c.current_employer,
+                            })),
+                  };
+          } catch (e) {
+                  return { error: e.message };
+          }
+    },
+});
+
+export const searchVincereCompaniesTool = tool({
+    description: "Sucht Unternehmen direkt im Vincere-System (ATS) nach Stichwort.",
+    inputSchema: z.object({
+          keyword: z.string(),
+          rows: z.number().optional().default(10),
+    }),
+    execute: async ({ keyword, rows }) => {
+          try {
+                  const { searchVincereCompanies } = await import("@/lib/vincere");
+                  const items = await searchVincereCompanies(keyword, rows ?? 10);
+                  return {
+                            count: items.length,
+                            companies: items.map((c) => ({ id: c.id, name: c.name, website: c.website })),
+                  };
+          } catch (e) {
+                  return { error: e.message };
+          }
+    },
+});
+
+export const createVincereCompanyTool = tool({
+    description: "Legt ein neues Unternehmen direkt im Vincere-System (ATS) an.",
+    inputSchema: z.object({
+          name: z.string(),
+          website: z.string().optional(),
+          city: z.string().optional(),
+          postcode: z.string().optional(),
+    }),
+    execute: async (params) => {
+          try {
+                  const { createVincereCompany } = await import("@/lib/vincere");
+                  const result = await createVincereCompany(params);
+                  return result;
+          } catch (e) {
+                  return { error: e.message };
+          }
+    },
+});
+
+export const addCandidateToVincereTool = tool({
+    description:
+          "Ueberraegt einen bereits in der lokalen Datenbank gespeicherten Kandidaten zusaetzlich ins Vincere-System (ATS).",
+    inputSchema: z.object({
+          candidateId: z.string(),
+    }),
+    execute: async ({ candidateId }) => {
+          try {
+                  const candidate = await prisma.candidate.findUnique({ where: { id: candidateId } });
+                  if (!candidate) return { success: false, message: "Kandidat nicht gefunden." };
+                  const { createVincereCandidate } = await import("@/lib/vincere");
+                  const result = await createVincereCandidate({
+                            firstName: candidate.firstName,
+                            lastName: candidate.lastName,
+                            email: candidate.email ?? undefined,
+                            phone: candidate.phone ?? undefined,
+                            currentTitle: candidate.currentTitle ?? undefined,
+                  });
+                  return result;
+          } catch (e) {
+                  return { error: e.message };
+          }
+    },
+});
+
 export const allTools = {
   saveCandidate: saveCandidateTool,
   searchCandidates: searchCandidatesTool,
@@ -264,4 +355,8 @@ export const allTools = {
   saveJob: saveJobTool,
   getPipeline: getPipelineTool,
   searchCompanies: searchCompaniesTool,
+    searchVincereCandidates: searchVincereCandidatesTool,
+    searchVincereCompanies: searchVincereCompaniesTool,
+    createVincereCompany: createVincereCompanyTool,
+    addCandidateToVincere: addCandidateToVincereTool,
 };
