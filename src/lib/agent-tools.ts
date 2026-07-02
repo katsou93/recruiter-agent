@@ -7,7 +7,7 @@ import { prisma } from "@/lib/prisma";
 export const saveCandidateTool = tool({
   description:
     "Speichert einen neuen Kandidaten in der Datenbank.",
-inputSchema: z.object({
+  inputSchema: z.object({
     firstName: z.string(),
     lastName: z.string(),
     email: z.string().optional(),
@@ -62,161 +62,115 @@ export const searchCandidatesTool = tool({
     }
     const candidates = await prisma.candidate.findMany({
       where,
-      take: limit ?? 10,
-      orderBy: { updatedAt: "desc" },
+      take: limit,
+      orderBy: { createdAt: "desc" },
     });
     return {
       count: candidates.length,
       candidates: candidates.map((c) => ({
         id: c.id,
         name: `${c.firstName} ${c.lastName}`,
+        email: c.email,
         title: c.currentTitle,
         company: c.currentCompany,
         location: c.location,
-        status: c.status,
         skills: c.skills,
-        email: c.email,
+        status: c.status,
       })),
     };
   },
 });
 
 export const updateCandidateStatusTool = tool({
-  description: "Aktualisiert den Status oder Notizen eines Kandidaten.",
+  description: "Aktualisiert den Pipeline-Status eines Kandidaten.",
   inputSchema: z.object({
     candidateId: z.string(),
-    status: z
-      .enum(["NEW", "CONTACTED", "REPLIED", "INTERVIEW", "OFFER", "PLACED", "REJECTED", "INACTIVE"])
-      .optional(),
+    status: z.enum(["NEW", "CONTACTED", "REPLIED", "INTERVIEW", "OFFER", "PLACED", "REJECTED", "INACTIVE"]),
     notes: z.string().optional(),
   }),
   execute: async ({ candidateId, status, notes }) => {
-    const updated = await prisma.candidate.update({
+    const candidate = await prisma.candidate.update({
       where: { id: candidateId },
-      data: {
-        ...(status && { status }),
-        ...(notes && { notes }),
-      },
+      data: { status, ...(notes ? { notes } : {}) },
     });
     return {
       success: true,
-      message: `Kandidat ${updated.firstName} ${updated.lastName} aktualisiert.`,
+      message: `Status von ${candidate.firstName} ${candidate.lastName} auf ${status} gesetzt.`,
     };
   },
 });
 
 export const draftOutreachTool = tool({
-  description:
-    "Erstellt einen personalisierten Anschreiben-Entwurf. Wird als DRAFT gespeichert – du versendest ihn manuell über Outlook.",
+  description: "Erstellt einen Anschreiben-Entwurf fuer einen Kandidaten (wird als Entwurf gespeichert, nicht versendet).",
   inputSchema: z.object({
     candidateId: z.string(),
-    jobTitle: z.string(),
-    companyName: z.string(),
-    customMessage: z.string().optional(),
-    language: z.enum(["de", "en"]).default("de"),
+    jobId: z.string().optional(),
+    subject: z.string(),
+    body: z.string(),
   }),
-  execute: async ({ candidateId, jobTitle, companyName, customMessage, language }) => {
-    const candidate = await prisma.candidate.findUnique({ where: { id: candidateId } });
-    if (!candidate) return { success: false, message: "Kandidat nicht gefunden." };
-
-    const isDE = language === "de";
-    const subject = isDE
-      ? `Spannende ${jobTitle}-Position bei ${companyName}`
-      : `Exciting ${jobTitle} opportunity at ${companyName}`;
-
-    const titleLine = candidate.currentTitle
-      ? isDE
-        ? ` Als ${candidate.currentTitle}${candidate.currentCompany ? ` bei ${candidate.currentCompany}` : ""} bringen Sie genau die Erfahrung mit, die unser Kunde sucht.`
-        : ` Your background as ${candidate.currentTitle}${candidate.currentCompany ? ` at ${candidate.currentCompany}` : ""} is a great fit.`
-      : "";
-
-    const body = isDE
-      ? `Hallo ${candidate.firstName},\n\nIch bin auf Ihr Profil aufmerksam geworden und möchte Sie für eine ${jobTitle}-Position bei ${companyName} anfragen.${titleLine}\n\n${customMessage ? customMessage + "\n\n" : ""}Hätten Sie Interesse an einem kurzen Austausch? Ich freue mich über Ihre Rückmeldung.\n\nMit freundlichen Grüßen`
-      : `Hi ${candidate.firstName},\n\nI came across your profile and would love to discuss a ${jobTitle} opportunity at ${companyName}.${titleLine}\n\n${customMessage ? customMessage + "\n\n" : ""}Would you be open to a brief chat?\n\nBest regards`;
-
+  execute: async ({ candidateId, jobId, subject, body }) => {
     const outreach = await prisma.outreach.create({
-      data: { subject, body, candidateId, status: "DRAFT" },
+      data: { candidateId, jobId: jobId ?? null, subject, body, status: "DRAFT" },
     });
-
     return {
       success: true,
       outreachId: outreach.id,
-      subject,
-      body,
-      message: `Entwurf für ${candidate.firstName} ${candidate.lastName} erstellt. Betreff: "${subject}"`,
+      message: "Entwurf gespeichert. Du versendest ihn manuell ueber Outlook.",
     };
   },
 });
 
 export const saveCompanyTool = tool({
-  description: "Speichert ein neues Unternehmen oder Kunden in der Datenbank.",
+  description: "Speichert ein neues Unternehmen in der Datenbank.",
   inputSchema: z.object({
     name: z.string(),
     industry: z.string().optional(),
-    website: z.string().optional(),
     location: z.string().optional(),
-    size: z.string().optional(),
-    notes: z.string().optional(),
+    website: z.string().optional(),
     contactName: z.string().optional(),
     contactEmail: z.string().optional(),
     contactPhone: z.string().optional(),
+    notes: z.string().optional(),
   }),
   execute: async (params) => {
     const company = await prisma.company.create({ data: params });
-    return {
-      success: true,
-      companyId: company.id,
-      message: `Unternehmen "${company.name}" gespeichert.`,
-    };
+    return { success: true, companyId: company.id, message: `Unternehmen ${company.name} gespeichert.` };
   },
 });
 
 export const saveJobTool = tool({
-  description: "Legt eine neue offene Stelle für ein Unternehmen an.",
+  description: "Speichert eine offene Stelle in der Datenbank.",
   inputSchema: z.object({
     companyId: z.string(),
     title: z.string(),
     description: z.string().optional(),
-    salary: z.string().optional(),
     location: z.string().optional(),
-    remote: z.boolean().optional().default(false),
+    salary: z.string().optional(),
+    requirements: z.array(z.string()).optional(),
   }),
   execute: async (params) => {
-    const company = await prisma.company.findUnique({ where: { id: params.companyId } });
-    if (!company) return { success: false, message: "Unternehmen nicht gefunden." };
-    const job = await prisma.job.create({ data: { ...params, remote: params.remote ?? false } });
-    return {
-      success: true,
-      jobId: job.id,
-      message: `Stelle "${job.title}" bei ${company.name} angelegt.`,
-    };
+    const job = await prisma.job.create({
+      data: { ...params, requirements: params.requirements ?? [] },
+    });
+    return { success: true, jobId: job.id, message: `Stelle ${job.title} gespeichert.` };
   },
 });
 
 export const getPipelineTool = tool({
-  description: "Gibt eine Übersicht der aktuellen Kandidaten-Pipeline zurück.",
+  description: "Gibt eine Uebersicht der Kandidaten-Pipeline nach Status gruppiert zurueck.",
   inputSchema: z.object({}),
   execute: async () => {
-    const pipeline = await prisma.candidate.groupBy({
-      by: ["status"],
-      _count: { status: true },
+    const candidates = await prisma.candidate.findMany({
+      select: { id: true, firstName: true, lastName: true, status: true, currentTitle: true },
     });
-    const recent = await prisma.candidate.findMany({
-      take: 5,
-      orderBy: { updatedAt: "desc" },
-      select: {
-        id: true,
-        firstName: true,
-        lastName: true,
-        status: true,
-        currentTitle: true,
-        updatedAt: true,
-      },
-    });
-    return {
-      pipeline: pipeline.map((p) => ({ status: p.status, count: p._count.status })),
-      recentlyUpdated: recent,
-    };
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const grouped: Record<string, any[]> = {};
+    for (const c of candidates) {
+      const key = c.status;
+      if (!grouped[key]) grouped[key] = [];
+      grouped[key].push({ id: c.id, name: `${c.firstName} ${c.lastName}`, title: c.currentTitle });
+    }
+    return { total: candidates.length, byStatus: grouped };
   },
 });
 
@@ -256,94 +210,170 @@ export const searchCompaniesTool = tool({
 });
 
 export const searchVincereCandidatesTool = tool({
-    description:
-          "Sucht Kandidaten direkt im Vincere-System (ATS) nach Stichwort, z.B. Name, Skill oder Jobtitel.",
-    inputSchema: z.object({
-          keyword: z.string(),
-          rows: z.number().optional().default(10),
-    }),
-    execute: async ({ keyword, rows }) => {
-          try {
-                  const { searchVincereCandidates } = await import("@/lib/vincere");
-                  const items = await searchVincereCandidates(keyword, rows ?? 10);
-                  return {
-                            count: items.length,
-                            candidates: items.map((c) => ({
-                                        id: c.id,
-                                        name: c.name,
-                                        email: c.email,
-                                        title: c.current_job_title,
-                                        company: c.current_employer,
-                            })),
-                  };
-          } catch (e) {
-                  return { error: e.message };
-          }
-    },
+  description:
+    "Sucht Kandidaten direkt im Vincere-System (ATS) nach Stichwort, z.B. Name, Skill oder Jobtitel.",
+  inputSchema: z.object({
+    keyword: z.string(),
+    rows: z.number().optional().default(10),
+  }),
+  execute: async ({ keyword, rows }) => {
+    try {
+      const { searchVincereCandidates } = await import("@/lib/vincere");
+      const items = await searchVincereCandidates(keyword, rows ?? 10);
+      return {
+        count: items.length,
+        candidates: items.map((c) => ({
+          id: c.id,
+          name: c.name,
+          email: c.email,
+          title: c.current_job_title,
+          company: c.current_employer,
+        })),
+      };
+    } catch (e) {
+      return { error: e.message };
+    }
+  },
 });
 
 export const searchVincereCompaniesTool = tool({
-    description: "Sucht Unternehmen direkt im Vincere-System (ATS) nach Stichwort.",
-    inputSchema: z.object({
-          keyword: z.string(),
-          rows: z.number().optional().default(10),
-    }),
-    execute: async ({ keyword, rows }) => {
-          try {
-                  const { searchVincereCompanies } = await import("@/lib/vincere");
-                  const items = await searchVincereCompanies(keyword, rows ?? 10);
-                  return {
-                            count: items.length,
-                            companies: items.map((c) => ({ id: c.id, name: c.name, website: c.website })),
-                  };
-          } catch (e) {
-                  return { error: e.message };
-          }
-    },
+  description: "Sucht Unternehmen direkt im Vincere-System (ATS) nach Stichwort.",
+  inputSchema: z.object({
+    keyword: z.string(),
+    rows: z.number().optional().default(10),
+  }),
+  execute: async ({ keyword, rows }) => {
+    try {
+      const { searchVincereCompanies } = await import("@/lib/vincere");
+      const items = await searchVincereCompanies(keyword, rows ?? 10);
+      return {
+        count: items.length,
+        companies: items.map((c) => ({ id: c.id, name: c.name, website: c.website })),
+      };
+    } catch (e) {
+      return { error: e.message };
+    }
+  },
 });
 
 export const createVincereCompanyTool = tool({
-    description: "Legt ein neues Unternehmen direkt im Vincere-System (ATS) an.",
-    inputSchema: z.object({
-          name: z.string(),
-          website: z.string().optional(),
-          city: z.string().optional(),
-          postcode: z.string().optional(),
-    }),
-    execute: async (params) => {
-          try {
-                  const { createVincereCompany } = await import("@/lib/vincere");
-                  const result = await createVincereCompany(params);
-                  return result;
-          } catch (e) {
-                  return { error: e.message };
-          }
-    },
+  description: "Legt ein neues Unternehmen direkt im Vincere-System (ATS) an.",
+  inputSchema: z.object({
+    name: z.string(),
+    website: z.string().optional(),
+    city: z.string().optional(),
+    postcode: z.string().optional(),
+  }),
+  execute: async (params) => {
+    try {
+      const { createVincereCompany } = await import("@/lib/vincere");
+      const result = await createVincereCompany(params);
+      return result;
+    } catch (e) {
+      return { error: e.message };
+    }
+  },
 });
 
 export const addCandidateToVincereTool = tool({
-    description:
-          "Ueberraegt einen bereits in der lokalen Datenbank gespeicherten Kandidaten zusaetzlich ins Vincere-System (ATS).",
-    inputSchema: z.object({
-          candidateId: z.string(),
-    }),
-    execute: async ({ candidateId }) => {
-          try {
-                  const candidate = await prisma.candidate.findUnique({ where: { id: candidateId } });
-                  if (!candidate) return { success: false, message: "Kandidat nicht gefunden." };
-                  const { createVincereCandidate } = await import("@/lib/vincere");
-                  const result = await createVincereCandidate({
-                            firstName: candidate.firstName,
-                            lastName: candidate.lastName,
-                            email: candidate.email ?? undefined,
-                            phone: candidate.phone ?? undefined,
-                            currentTitle: candidate.currentTitle ?? undefined,
-                  });
-                  return result;
-          } catch (e) {
-                  return { error: e.message };
-          }
-    },
+  description:
+    "Uebertraegt einen bereits in der lokalen Datenbank gespeicherten Kandidaten zusaetzlich ins Vincere-System (ATS).",
+  inputSchema: z.object({
+    candidateId: z.string(),
+  }),
+  execute: async ({ candidateId }) => {
+    try {
+      const candidate = await prisma.candidate.findUnique({ where: { id: candidateId } });
+      if (!candidate) return { success: false, message: "Kandidat nicht gefunden." };
+      const { createVincereCandidate } = await import("@/lib/vincere");
+      const result = await createVincereCandidate({
+        firstName: candidate.firstName,
+        lastName: candidate.lastName,
+        email: candidate.email ?? undefined,
+        phone: candidate.phone ?? undefined,
+        currentTitle: candidate.currentTitle ?? undefined,
+      });
+      return result;
+    } catch (e) {
+      return { error: e.message };
+    }
+  },
+});
+
+export const addVincereContactTool = tool({
+  description:
+    "Legt eine Ansprechperson (Kontakt) in Vincere an und verknuepft sie mit einem Unternehmen. Nutze das nach findCompanyContact, um den gefundenen Kontakt zu speichern.",
+  inputSchema: z.object({
+    firstName: z.string().optional(),
+    lastName: z.string().optional(),
+    email: z.string().optional(),
+    phone: z.string().optional(),
+    position: z.string().optional(),
+    companyName: z.string().optional(),
+    companyId: z.number().optional(),
+  }),
+  execute: async (params) => {
+    try {
+      const { createVincereContact } = await import("@/lib/vincere");
+      const result = await createVincereContact(params);
+      return result;
+    } catch (e) {
+      return { error: e.message };
+    }
+  },
+});
+
+export const searchJobsTool = tool({
+  description:
+    "Sucht offene Stellenanzeigen ueber die Bundesagentur-fuer-Arbeit-Jobsuche-API, StepStone und Indeed gleichzeitig (parallel, dedupliziert). Gibt eine Liste mit Titel, Unternehmen, Standort, Quelle und Link zurueck. Nutze umkreis fuer einen Radius in km um den Ort.",
+  inputSchema: z.object({
+    was: z.string().describe("Jobtitel oder Suchbegriff, z.B. 'DevOps Engineer'"),
+    wo: z.string().describe("Ort, z.B. 'Hamburg'"),
+    umkreis: z.number().optional().default(50).describe("Umkreis in km"),
+    size: z.number().optional().default(25),
+  }),
+  execute: async ({ was, wo, umkreis, size }) => {
+    try {
+      const { searchAllJobs } = await import("@/lib/jobsearch");
+      return await searchAllJobs({ was, wo, umkreis, size });
+    } catch (e) {
+      return { error: e.message };
+    }
+  },
+});
+
+export const getJobDetailsTool = tool({
+  description:
+    "Ruft Details zu einer Stellenanzeige von der Bundesagentur fuer Arbeit ab (refnr aus searchJobs), inkl. Beschreibung, Arbeitgeber-Homepage und ggf. Kontaktdaten.",
+  inputSchema: z.object({ refnr: z.string() }),
+  execute: async ({ refnr }) => {
+    try {
+      const { getJobDetailBA } = await import("@/lib/jobsearch");
+      return await getJobDetailBA(refnr);
+    } catch (e) {
+      return { error: e.message };
+    }
+  },
+});
+
+export const findCompanyContactTool = tool({
+  description:
+    "Findet automatisch eine Ansprechperson fuer ein Unternehmen. Prioritaet: 1) Kontakt aus Stellentext/externer URL 2) HR/Recruiting-Kontakt von der Firmenwebsite (Karriere/Kontakt/Team-Seite) 3) Geschaeftsfuehrung aus dem Impressum, falls keine HR-Person gefunden wird. E-Mail-Prioritaet: HR-E-Mail (bewerbung@/personal@/karriere@) vor persoenlicher E-Mail der gefundenen Person vor allgemeiner info@-Adresse als letzter Fallback. Nutze das fuer jedes Unternehmen aus searchJobs, das noch keinen Ansprechpartner in Vincere hat.",
+  inputSchema: z.object({
+    companyName: z.string(),
+    city: z.string().optional(),
+    website: z.string().optional(),
+    jobText: z.string().optional().describe("Volltext der Stellenbeschreibung, falls vorhanden - wird zuerst durchsucht"),
+    externeUrl: z.string().optional().describe("Externe Bewerbungs-URL der Stellenanzeige, falls vorhanden"),
+  }),
+  execute: async (params) => {
+    try {
+      const { findContact } = await import("@/lib/find-contact");
+      return await findContact(params);
+    } catch (e) {
+      return { error: e.message };
+    }
+  },
 });
 
 export const allTools = {
@@ -355,8 +385,12 @@ export const allTools = {
   saveJob: saveJobTool,
   getPipeline: getPipelineTool,
   searchCompanies: searchCompaniesTool,
-    searchVincereCandidates: searchVincereCandidatesTool,
-    searchVincereCompanies: searchVincereCompaniesTool,
-    createVincereCompany: createVincereCompanyTool,
-    addCandidateToVincere: addCandidateToVincereTool,
+  searchVincereCandidates: searchVincereCandidatesTool,
+  searchVincereCompanies: searchVincereCompaniesTool,
+  createVincereCompany: createVincereCompanyTool,
+  addCandidateToVincere: addCandidateToVincereTool,
+  addVincereContact: addVincereContactTool,
+  searchJobs: searchJobsTool,
+  getJobDetails: getJobDetailsTool,
+  findCompanyContact: findCompanyContactTool,
 };
