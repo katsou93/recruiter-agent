@@ -1,4 +1,4 @@
-// @ts-nocheck
+ö// @ts-nocheck
 // Bundesagentur fuer Arbeit - oeffentliche Jobsuche-API (aggregiert Stellen von vielen Portalen)
 const BA_CLIENT_ID = "c003a37f-024f-462a-b36d-b001be4cd24a";
 const BA_CLIENT_SECRET = "32a39620-32b3-4307-9aa1-511e3d7f48a8";
