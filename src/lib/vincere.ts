@@ -158,6 +158,10 @@ export async function updateVincereCompany(companyId: number, fields: { headQuar
       if (fields.headQuarter) payload.head_quarter = fields.headQuarter;
       if (fields.website) payload.website = fields.website;
       if (!Object.keys(payload).length) return { ok: true, skipped: true };
+      // FIX: Vincere's PUT /company/{id} verlangt registration_date auch bei Teil-Updates,
+      // sonst Fehler "registration_date cannot be null". Aktuelles Datum mitschicken.
+      const today = new Date().toISOString().split("T")[0] + "T00:00:00.000Z";
+      payload.registration_date = today;
       const res = await vincereFetch(`/api/v2/company/${companyId}`, {
               method: "PUT",
               body: JSON.stringify(payload),
