@@ -96,32 +96,75 @@ export async function searchVincereCompanies(keyword: string, rows = 10) {
       return data.result?.items || [];
 }
 
+// Extrahiert "PLZ Ort" aus einer vollen Adresse ("Bahnhofstr. 5, 73630 Remshalden" -> "73630 Remshalden")
+function extractPlzOrt(address?: string | null) {
+      if (!address) return null;
+      const m = address.match(/(\d{5})\s+([A-Za-z\u00C0-\u024F][A-Za-z\u00C0-\u024F\s.\-]{1,40}?)\s*$/);
+      if (m) return `${m[1]} ${m[2].trim()}`;
+      return null;
+}
+
+// Baut den Wert fuer das Vincere-Feld head_quarter (String, z.B. "73630 Remshalden").
+// Prioritaet: volle Adresse (z.B. aus dem Impressum via findContact) -> postcode+city -> city
+export function buildHeadQuarter(params: { city?: string; postcode?: string; address?: string | null }) {
+      const fromAddress = extractPlzOrt(params.address);
+      if (fromAddress) return fromAddress;
+      const parts = [params.postcode, params.city].filter(Boolean);
+      if (parts.length) return parts.join(" ");
+      return params.address?.trim() || null;
+}
+
 export async function createVincereCompany(params: {
       name: string;
       website?: string;
       city?: string;
       postcode?: string;
+      address?: string; // volle Adresse, z.B. "Bahnhofstr. 5, 73630 Remshalden" (aus findContact)
 }) {
       const today = new Date().toISOString().split("T")[0] + "T00:00:00.000Z";
+      // FIX: Standort wird jetzt als head_quarter mitgesendet (vorher wurden city/postcode verworfen)
+      const headQuarter = buildHeadQuarter(params);
+      const payload: Record<string, unknown> = { company_name: params.name, registration_date: today };
+      if (headQuarter) payload.head_quarter = headQuarter;
       const res = await vincereFetch(`/api/v2/company`, {
               method: "POST",
-              body: JSON.stringify({ company_name: params.name, registration_date: today }),
+              body: JSON.stringify(payload),
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
               if (data?.errorCode === "DUPLICATED") {
-                        return { ok: false, duplicated: true, message: "Unternehmen existiert bereits in Vincere." };
+                        const existing = await findVincereCompanyByName(params.name);
+                        return { ok: false, duplicated: true, existingId: existing?.id ?? null, message: "Unternehmen existiert bereits in Vincere." };
               }
               throw new Error(`Vincere Fehler ${res.status}: ${JSON.stringify(data)}`);
       }
       const companyId = data.id;
-      if (params.website && companyId) {
+      // Zusatzfelder per PUT nachziehen (bewaehrter Weg; head_quarter zusaetzlich, falls POST das Feld ignoriert)
+      const updates: Record<string, unknown> = {};
+      if (params.website) updates.website = params.website;
+      if (headQuarter) updates.head_quarter = headQuarter;
+      if (companyId && Object.keys(updates).length) {
               await vincereFetch(`/api/v2/company/${companyId}`, {
                         method: "PUT",
-                        body: JSON.stringify({ website: params.website }),
+                        body: JSON.stringify(updates),
               }).catch(() => {});
       }
-      return { ok: true, id: companyId, name: data.company_name };
+      return { ok: true, id: companyId, name: data.company_name, headQuarter: headQuarter || null };
+}
+
+// Ergaenzt Standort/Website an einem bestehenden Vincere-Unternehmen (fuer Backfill und Duplikat-Fall)
+export async function updateVincereCompany(companyId: number, fields: { headQuarter?: string; website?: string }) {
+      const payload: Record<string, unknown> = {};
+      if (fields.headQuarter) payload.head_quarter = fields.headQuarter;
+      if (fields.website) payload.website = fields.website;
+      if (!Object.keys(payload).length) return { ok: true, skipped: true };
+      const res = await vincereFetch(`/api/v2/company/${companyId}`, {
+              method: "PUT",
+              body: JSON.stringify(payload),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) return { ok: false, error: `Vincere Fehler ${res.status}`, detail: data };
+      return { ok: true, id: companyId, updated: Object.keys(payload) };
 }
 
 export async function createVincereCandidate(params: {
@@ -150,6 +193,17 @@ export async function createVincereCandidate(params: {
               throw new Error(`Vincere Fehler ${res.status}: ${JSON.stringify(data)}`);
       }
       return { ok: true, id: data.id, data };
+}
+
+// Listet Unternehmen inkl. head_quarter (fuer den Backfill unvollstaendiger Firmen).
+// Hinweis: Falls keyword=* im eigenen Tenant nichts liefert, alternativ q=%2A%3A%2A testen.
+export async function listVincereCompanies(start = 0, rows = 100) {
+      const res = await vincereFetch(
+              `/api/v2/company/search/fl=id,name,website,head_quarter?keyword=*&rows=${rows}&start=${start}`
+            );
+      if (!res.ok) throw new Error(`Vincere Fehler ${res.status}`);
+      const data = await res.json();
+      return { items: data.result?.items || [], total: data.result?.total ?? null };
 }
 
 export async function findVincereCompanyByName(name: string) {
