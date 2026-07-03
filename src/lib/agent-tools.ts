@@ -376,6 +376,135 @@ export const findCompanyContactTool = tool({
   },
 });
 
+export const onboardCompanyToVincereTool = tool({
+  description:
+    "Kompletter Onboarding-Schritt fuer ein neues Unternehmen in Vincere: sucht automatisch Ansprechpartner UND Standort (aus dem Impressum), legt das Unternehmen MIT Standort an und speichert den gefundenen Kontakt direkt verknuepft. Nutze IMMER dieses Tool statt createVincereCompany einzeln aufzurufen, wenn du ein Unternehmen aus einer Jobsuche in Vincere anlegen willst - so gehen Standort und Ansprechpartner nie verloren.",
+  inputSchema: z.object({
+    companyName: z.string(),
+    city: z.string().optional().describe("Ort, falls aus der Stellenanzeige bekannt"),
+    website: z.string().optional(),
+    jobText: z.string().optional().describe("Volltext der Stellenbeschreibung, falls vorhanden"),
+    externeUrl: z.string().optional().describe("Externe Bewerbungs-URL der Stellenanzeige, falls vorhanden"),
+  }),
+  execute: async (params) => {
+    try {
+      const { findContact } = await import("@/lib/find-contact");
+      const { createVincereCompany, createVincereContact } = await import("@/lib/vincere");
+
+      const contact = await findContact({
+        name: params.companyName,
+        city: params.city,
+        website: params.website,
+        jobText: params.jobText,
+        externeUrl: params.externeUrl,
+      });
+
+      const companyResult = await createVincereCompany({
+        name: params.companyName,
+        website: params.website || contact.website || undefined,
+        city: params.city,
+        address: contact.address || undefined,
+      });
+
+      const companyId = companyResult.id || companyResult.existingId;
+
+      let contactResult = null;
+      if (companyId && (contact.email || (contact.firstName && contact.lastName))) {
+        contactResult = await createVincereContact({
+          firstName: contact.firstName || undefined,
+          lastName: contact.lastName || undefined,
+          email: contact.email || undefined,
+          phone: contact.phone || undefined,
+          position: contact.position || undefined,
+          companyId,
+        });
+      }
+
+      return {
+        company: companyResult,
+        contact: contactResult,
+        contactFound: {
+          name: contact.firstName ? `${contact.firstName} ${contact.lastName}` : null,
+          email: contact.email,
+          position: contact.position,
+          address: contact.address,
+          source: contact.source,
+        },
+      };
+    } catch (e) {
+      return { error: e.message };
+    }
+  },
+});
+
+export const listIncompleteVincereCompaniesTool = tool({
+  description:
+    "Listet Unternehmen in Vincere, denen der Standort (head_quarter) fehlt. Nutze das, um herauszufinden, welche bereits angelegten Firmen noch per backfillVincereCompany nachgebessert werden muessen.",
+  inputSchema: z.object({
+    rows: z.number().optional().default(100),
+  }),
+  execute: async ({ rows }) => {
+    try {
+      const { listVincereCompanies } = await import("@/lib/vincere");
+      const { items, total } = await listVincereCompanies(0, rows ?? 100);
+      const incomplete = items.filter((c) => !c.head_quarter);
+      return {
+        totalInVincere: total,
+        checked: items.length,
+        incompleteCount: incomplete.length,
+        incomplete: incomplete.map((c) => ({ id: c.id, name: c.name, website: c.website })),
+      };
+    } catch (e) {
+      return { error: e.message };
+    }
+  },
+});
+
+export const backfillVincereCompanyTool = tool({
+  description:
+    "Ergaenzt eine bereits in Vincere existierende, unvollstaendige Firma nachtraeglich um Standort (aus dem Impressum) und Ansprechpartner. Nutze companyId aus listIncompleteVincereCompanies.",
+  inputSchema: z.object({
+    companyId: z.number(),
+    companyName: z.string(),
+    city: z.string().optional(),
+    website: z.string().optional(),
+  }),
+  execute: async (params) => {
+    try {
+      const { findContact } = await import("@/lib/find-contact");
+      const { updateVincereCompany, createVincereContact, buildHeadQuarter } = await import("@/lib/vincere");
+
+      const contact = await findContact({
+        name: params.companyName,
+        city: params.city,
+        website: params.website,
+      });
+
+      const headQuarter = buildHeadQuarter({ city: params.city, address: contact.address });
+      const companyUpdate = await updateVincereCompany(params.companyId, {
+        headQuarter: headQuarter || undefined,
+        website: params.website || contact.website || undefined,
+      });
+
+      let contactResult = null;
+      if (contact.email || (contact.firstName && contact.lastName)) {
+        contactResult = await createVincereContact({
+          firstName: contact.firstName || undefined,
+          lastName: contact.lastName || undefined,
+          email: contact.email || undefined,
+          phone: contact.phone || undefined,
+          position: contact.position || undefined,
+          companyId: params.companyId,
+        });
+      }
+
+      return { companyUpdate, contactResult, contactFound: contact };
+    } catch (e) {
+      return { error: e.message };
+    }
+  },
+});
+
 export const allTools = {
   saveCandidate: saveCandidateTool,
   searchCandidates: searchCandidatesTool,
@@ -393,4 +522,7 @@ export const allTools = {
   searchJobs: searchJobsTool,
   getJobDetails: getJobDetailsTool,
   findCompanyContact: findCompanyContactTool,
+  onboardCompanyToVincere: onboardCompanyToVincereTool,
+  listIncompleteVincereCompanies: listIncompleteVincereCompaniesTool,
+  backfillVincereCompany: backfillVincereCompanyTool,
 };
