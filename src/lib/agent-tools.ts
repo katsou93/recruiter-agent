@@ -378,9 +378,9 @@ export const findCompanyContactTool = tool({
 
 export const onboardCompanyToVincereTool = tool({
   description:
-    "Kompletter Onboarding-Schritt fuer ein neues Unternehmen in Vincere: sucht automatisch Ansprechpartner UND Standort (aus dem Impressum), legt das Unternehmen MIT Standort an und speichert den gefundenen Kontakt direkt verknuepft. Nutze IMMER dieses Tool statt createVincereCompany einzeln aufzurufen, wenn du ein Unternehmen aus einer Jobsuche in Vincere anlegen willst - so gehen Standort und Ansprechpartner nie verloren.",
+    "Kompletter Lead-Import-Schritt fuer ein neues Unternehmen in Vincere. Ablauf: 1) sucht Ansprechpartner + Standort + offiziellen Firmennamen aus dem Impressum, 2) gleicht ZUERST anhand des offiziellen Impressum-Namens gegen Vincere ab (nicht nur der Job-Board-Name, der oft abweicht) - existiert die Firma bereits, wird NICHTS doppelt angelegt, 3) legt das Unternehmen NUR an, wenn ein Ansprechpartner gefunden wurde (Name+Email oder Email) - STRIKTE REGEL: es darf NIE ein Unternehmen ohne Kontakt in Vincere landen, wird keiner gefunden meldet das Tool das explizit als 'kein Kontakt gefunden - nicht angelegt' statt die Firma trotzdem anzulegen. Nutze IMMER dieses Tool fuer den Lead-Import aus der Jobsuche, nie createVincereCompany isoliert.",
   inputSchema: z.object({
-    companyName: z.string(),
+    companyName: z.string().describe("Firmenname wie auf dem Jobportal angegeben"),
     city: z.string().optional().describe("Ort, falls aus der Stellenanzeige bekannt"),
     website: z.string().optional(),
     jobText: z.string().optional().describe("Volltext der Stellenbeschreibung, falls vorhanden"),
@@ -389,7 +389,7 @@ export const onboardCompanyToVincereTool = tool({
   execute: async (params) => {
     try {
       const { findContact } = await import("@/lib/find-contact");
-      const { createVincereCompany, createVincereContact } = await import("@/lib/vincere");
+      const { createVincereCompany, createVincereContact, findVincereCompanyByName } = await import("@/lib/vincere");
 
       const contact = await findContact({
         name: params.companyName,
@@ -399,17 +399,51 @@ export const onboardCompanyToVincereTool = tool({
         externeUrl: params.externeUrl,
       });
 
+      // Fuer den Vincere-Abgleich und das Anlegen wird der offizielle (rechtliche) Name aus dem
+      // Impressum bevorzugt, da der Job-Board-Name oft abweicht (z.B. Kurzform ohne Rechtsform).
+      const nameForVincere = contact.officialName || params.companyName;
+
+      const existing = await findVincereCompanyByName(nameForVincere);
+      if (existing) {
+        return {
+          skipped: true,
+          reason: "already_exists",
+          message: `Unternehmen "${nameForVincere}" existiert bereits in Vincere (ID ${existing.id}) - nicht doppelt angelegt.`,
+          existingId: existing.id,
+          contactFound: {
+            name: contact.firstName ? `${contact.firstName} ${contact.lastName}` : null,
+            email: contact.email,
+            position: contact.position,
+            source: contact.source,
+          },
+        };
+      }
+
+      const hasContact = !!(contact.email || (contact.firstName && contact.lastName));
+      if (!hasContact) {
+        // STRIKTE REGEL: kein Unternehmen ohne Ansprechpartner anlegen
+        return {
+          skipped: true,
+          reason: "no_contact_found",
+          message: `Kein Ansprechpartner fuer "${params.companyName}" gefunden - Unternehmen wurde NICHT in Vincere angelegt (Regel: keine Firma ohne Kontakt).`,
+          nameForVincere,
+          website: contact.website || null,
+          address: contact.address || null,
+        };
+      }
+
       const companyResult = await createVincereCompany({
-        name: params.companyName,
+        name: nameForVincere,
         website: params.website || contact.website || undefined,
         city: params.city,
         address: contact.address || undefined,
+        phone: contact.phone || undefined,
       });
 
       const companyId = companyResult.id || companyResult.existingId;
 
       let contactResult = null;
-      if (companyId && (contact.email || (contact.firstName && contact.lastName))) {
+      if (companyId) {
         contactResult = await createVincereContact({
           firstName: contact.firstName || undefined,
           lastName: contact.lastName || undefined,
@@ -421,11 +455,13 @@ export const onboardCompanyToVincereTool = tool({
       }
 
       return {
+        skipped: false,
         company: companyResult,
         contact: contactResult,
         contactFound: {
           name: contact.firstName ? `${contact.firstName} ${contact.lastName}` : null,
           email: contact.email,
+          phone: contact.phone,
           position: contact.position,
           address: contact.address,
           source: contact.source,
