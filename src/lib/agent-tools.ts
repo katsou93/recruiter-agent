@@ -484,6 +484,7 @@ export const backfillVincereCompanyTool = tool({
       const companyUpdate = await updateVincereCompany(params.companyId, {
         headQuarter: headQuarter || undefined,
         website: params.website || contact.website || undefined,
+        companyName: params.companyName,
       });
 
       let contactResult = null;
