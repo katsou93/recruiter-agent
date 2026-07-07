@@ -14,6 +14,8 @@ function bestEmail(text) { const all = [...text.matchAll(/[a-zA-Z0-9._%+\-]+@[a-
 function upgradeEmail(cur, cand) { if (!cand) return cur; if (!cur) return cand; if (cand.endsWith(".de") && !cur.endsWith(".de")) return cand; if (HR_EMAIL.test(cand) && !HR_EMAIL.test(cur)) return cand; if (!GENERIC.test(cand) && GENERIC.test(cur)) return cand; return cur; }
 function bestPhone(text) { const m1 = text.match(/(?:Tel(?:efon|\.)?|Fon|Phone|Mobil)[\s.:]*([+\d][\d\s()\-\/]{7,18})/i); if (m1) return m1[1].trim().replace(/\s+/g, " "); const m2 = text.match(/(?:^|\s)((?:\+49|0)[\d\s()\-\/]{8,18})(?:\s|$)/m); if (m2) return m2[1].trim().replace(/\s+/g, " "); return null; }
 function extractAddress(t) { const re = new RegExp("([A-Z" + AEU + OEU + UEU + UE + AE + OE + "][a-zA-Z" + AE + OE + UE + AEU + OEU + UEU + SS + "\\-\\.\\s]{3,40}\\s+\\d{1,4}[a-zA-Z]?),?\\s+(\\d{5})\\s+([A-Z" + AEU + OEU + UEU + "][a-zA-Z" + AE + OE + UE + AEU + OEU + UEU + SS + "\\-\\s]{2,30}?)(?=[\\s\\n\\r,;]|$)", "i"); const m = t.match(re); if (!m) return null; let street = m[1].replace(/^.*?(?:GmbH|Co\.\s*KG|KG)\s+/i, "").trim(); if (street.length < 3) street = m[1].trim(); return street + ", " + m[2] + " " + m[3].trim(); }
+// Zieht den offiziellen (rechtlichen) Firmennamen aus dem Impressum, z.B. "Mueller Technik GmbH & Co. KG"
+function extractOfficialName(t) { const legal = "(?:GmbH\\s*&\\s*Co\\.?\\s*KG|GmbH|AG\\s*&\\s*Co\\.?\\s*KG|KGaA|AG|UG\\s*\\(haftungsbeschr" + AE + "nkt\\)|UG|SE|OHG|eG|e\\.V\\.)"; const re = new RegExp("([A-Z" + AEU + OEU + UEU + "][A-Za-z0-9" + AE + OE + UE + AEU + OEU + UEU + SS + "&.\\-\\s]{1,60}?\\s" + legal + ")"); const m = t.match(re); if (!m) return null; return m[1].replace(/\s+/g, " ").trim(); }
 const BL = new Set(["Engineering", "Software", "Solutions", "Systems", "Services", "Technologies", "Consulting", "Business", "International", "Industrial", "Technical", "Digital", "Applications", "Products", "Operations", "Innovation", "Automation", "Division", "Manufacturing", "Mechanical", "Electrical", "Electronic", "Management", "Development", "Research", "Design", "Quality", "Production", "Gmbh", "Gruppe", "Group", "Holding", "Corporate", "Kontakt", "Karriere", "Bewerbung", "Impressum", "Datenschutz", "Stellenangebote", "Leistungen", "Produkte", "Unternehmen", "Standorte", "Aktuelles", "Presse", "Berufsfelder", "Berufe", "Bewerbende", "Bewerber", "Vorteile", "Leistung", "Infos", "Informationen", "Jobs", "Head", "People", "Culture", "Kultur", "Ihre", "Unser", "Unsere", "Ihren", "Ihrem", "Ihrer", "Unseren", "Unserem", "Unserer", "Seine", "Sein", "Dein", "Deine"]);
 function isRealName(fn, ln) { const fc = fn.replace(/^(Dr\.|Prof\.|Dipl\.|Ing\.)\s*/i, "").trim(); if (fc.length < 2 || ln.length < 2) return false; if (BL.has(fc) || BL.has(ln)) return false; if (/^[A-Z]{1,3}$/.test(fc) || /^[A-Z]{1,3}$/.test(ln)) return false; const startRe = new RegExp("^[A-Z" + AEU + OEU + UEU + "]"); if (!startRe.test(fc) || !startRe.test(ln)) return false; if (/\d/.test(fc) || /\d/.test(ln)) return false; if (fc.length > 25 || ln.length > 40) return false; const dashLower = new RegExp("-[a-z" + AE + OE + UE + SS + "]"); if (dashLower.test(ln)) return false; return true; }
 function getHRPos(c) { const t = (c || "").toLowerCase(); if (t.includes("personalleiter")) return "Personalleiter/in"; if (t.includes("people") || t.includes("culture")) return "People & Culture"; if (t.includes("personal") || t.includes("human resources")) return "HR Manager/in"; if (t.includes("recruit")) return "Recruiter/in"; if (t.includes("talent")) return "Talent Acquisition"; return "HR Ansprechpartner/in"; }
@@ -26,26 +28,30 @@ async function findWebsite(n, c) { const [g, p] = await Promise.all([findWebsite
 async function fetchPage(url, timeout = 6000) { const ctrl = new AbortController(); const t = setTimeout(() => ctrl.abort(), timeout); try { const r = await fetch(url, { headers: { "User-Agent": UA, Accept: "text/html", "Accept-Language": "de-DE,de;q=0.9" }, redirect: "follow", signal: ctrl.signal }); clearTimeout(t); if (!r.ok) return null; const html = await r.text(); return { url: r.url || url, text: stripHtml(html), html }; } catch { clearTimeout(t); return null; } }
 // Eigenstaendige Adress-Ermittlung: zieht die Firmenadresse direkt aus dem Impressum
 // (Fallback: Kontakt-/Startseite) - unabhaengig davon, ob ein Ansprechpartner gefunden wird.
-async function fetchAddressFromImpressum(base) { if (!base) return null; const urls = [base + "/impressum", base + "/de/impressum", base + "/legal/impressum", base + "/rechtliches", base + "/kontakt", base]; const results = await Promise.all(urls.map((u) => fetchPage(u))); for (const r of results) { if (!r) continue; const a = extractAddress(r.text); if (a) return a; } return null; }
+async function fetchImpressumData(base) { if (!base) return { address: null, officialName: null }; const urls = [base + "/impressum", base + "/de/impressum", base + "/legal/impressum", base + "/rechtliches", base + "/kontakt", base]; const results = await Promise.all(urls.map((u) => fetchPage(u))); let address = null, officialName = null; for (const r of results) { if (!r) continue; if (!address) address = extractAddress(r.text); if (!officialName) officialName = extractOfficialName(r.text); if (address && officialName) break; } return { address, officialName }; }
 
 export async function findContact(params) {
     const { name, city, website, jobText, externeUrl } = params;
-    const empty = { firstName: null, lastName: null, email: null, phone: null, position: null, source: null, website: null, address: null };
+    const empty = { firstName: null, lastName: null, email: null, phone: null, position: null, source: null, website: null, address: null, officialName: null };
     if (!name) return { ...empty, source: "error_no_name" };
 
   let base = website ? (website.startsWith("http") ? website.replace(/\/+$/, "") : "https://" + website) : null;
 
-  // FIX: Adresse ist ein eigenstaendiger, IMMER laufender Schritt (Top-Level-Feld "address").
-  // Prioritaet: 1) Stellentext 2) Impressum der Firmenwebsite. Jeder Rueckgabepfad geht
-  // durch withAddress(), damit kein Kontakt mehr ohne Adresse zurueckkommt, wenn eine ermittelbar ist.
+  // FIX: Adresse UND offizieller Firmenname (aus dem Impressum) sind eigenstaendige, IMMER
+  // laufende Schritte (Top-Level-Felder "address" und "officialName"). Der Job-Board-Name kann
+  // vom rechtlichen Namen abweichen; officialName wird fuer den Vincere-Abgleich benutzt.
   let address = jobText ? extractAddress(jobText) : null;
+  let officialName = null;
   const withAddress = async (result) => {
-        if (result.address) return { ...result, website: result.website || base || null };
-        if (!address) {
+        if (!address || !officialName) {
               if (!base) base = await findWebsite(name, city);
-              if (base) address = await fetchAddressFromImpressum(base);
+              if (base) {
+                    const impData = await fetchImpressumData(base);
+                    if (!address) address = impData.address;
+                    if (!officialName) officialName = impData.officialName;
+              }
         }
-        return { ...result, address: address || null, website: result.website || base || null };
+        return { ...result, address: result.address || address || null, officialName: officialName || null, website: result.website || base || null };
   };
 
   if (jobText) {
@@ -60,6 +66,7 @@ export async function findContact(params) {
           const ep = await fetchPage(extUrl);
           if (ep) {
                   if (!address) address = extractAddress(ep.text);
+                  if (!officialName) officialName = extractOfficialName(ep.text);
                   const hr = extractHR(ep.text, ep.html);
                   if (hr) return withAddress({ ...hr, email: hr._email || bestEmail(ep.text), phone: bestPhone(ep.text), source: "externe_url", website: base });
                   const mm = ep.html?.match(/href="mailto:([^"]+)"/i);
@@ -68,7 +75,7 @@ export async function findContact(params) {
     }
 
   if (!base) base = await findWebsite(name, city);
-    if (!base) return { ...empty, address: address || null, source: "no_website" };
+    if (!base) return { ...empty, address: address || null, officialName: officialName || null, source: "no_website" };
 
   const pages = [
     { url: base + "/karriere", type: "career" },
@@ -94,8 +101,12 @@ export async function findContact(params) {
           const ph = bestPhone(page.text);
           bestEmailFound = upgradeEmail(bestEmailFound, em);
           if (ph && !bestPhoneFound) bestPhoneFound = ph;
-          // FIX: Adresse aus JEDER Impressum-Seite ziehen - unabhaengig davon, ob ein CEO gefunden wird
-          if (!address && page.type === "impressum") address = extractAddress(page.text);
+          // FIX: Adresse UND offizieller Name aus JEDER Impressum-Seite ziehen - unabhaengig
+          // davon, ob ein CEO gefunden wird
+          if (page.type === "impressum") {
+                  if (!address) address = extractAddress(page.text);
+                  if (!officialName) officialName = extractOfficialName(page.text);
+          }
           if (!hrContact && page.type !== "impressum") {
                   const hr = extractHR(page.text, page.html);
                   if (hr) hrContact = { ...hr, email: hr._email || em || null, phone: ph || null, source: "website_" + page.type, website: base };
@@ -107,16 +118,17 @@ export async function findContact(params) {
     }
     // Fallback: Adresse von Kontakt-/Team-/Startseite, falls das Impressum nichts liefert
     if (!address) { for (const page of results) { if (!page) continue; const a = extractAddress(page.text); if (a) { address = a; break; } } }
+    if (!officialName) { for (const page of results) { if (!page) continue; const o = extractOfficialName(page.text); if (o) { officialName = o; break; } } }
 
-  if (hrContact) return { ...hrContact, address: address || null };
-    if (ceoContact) return { ...ceoContact, address: address || null };
+  if (hrContact) return { ...hrContact, address: address || null, officialName: officialName || null };
+    if (ceoContact) return { ...ceoContact, address: address || null, officialName: officialName || null };
     if (bestEmailFound) {
           const isHR = HR_EMAIL.test(bestEmailFound);
-          return { ...empty, firstName: isHR ? "Bewerbung" : "Personalabteilung", lastName: name.split(/\s+/)[0], email: bestEmailFound, phone: bestPhoneFound, position: isHR ? "HR Bewerbungskontakt" : "Ansprechpartner/in", source: "email_fallback", website: base, address: address || null };
+          return { ...empty, firstName: isHR ? "Bewerbung" : "Personalabteilung", lastName: name.split(/\s+/)[0], email: bestEmailFound, phone: bestPhoneFound, position: isHR ? "HR Bewerbungskontakt" : "Ansprechpartner/in", source: "email_fallback", website: base, address: address || null, officialName: officialName || null };
     }
     try {
           const domain = new URL(base).hostname.replace(/^www\./, "");
-          return { ...empty, firstName: "Bewerbung", lastName: name.split(/\s+/)[0], email: "bewerbung@" + domain, position: "HR Bewerbungskontakt", source: "constructed_email", website: base, address: address || null };
+          return { ...empty, firstName: "Bewerbung", lastName: name.split(/\s+/)[0], email: "bewerbung@" + domain, position: "HR Bewerbungskontakt", source: "constructed_email", website: base, address: address || null, officialName: officialName || null };
     } catch (_) {}
-    return { ...empty, website: base, address: address || null, source: "no_contact_found" };
+    return { ...empty, website: base, address: address || null, officialName: officialName || null, source: "no_contact_found" };
 }
