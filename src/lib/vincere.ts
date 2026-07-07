@@ -153,15 +153,25 @@ export async function createVincereCompany(params: {
 }
 
 // Ergaenzt Standort/Website an einem bestehenden Vincere-Unternehmen (fuer Backfill und Duplikat-Fall)
-export async function updateVincereCompany(companyId: number, fields: { headQuarter?: string; website?: string }) {
+export async function updateVincereCompany(companyId: number, fields: { headQuarter?: string; website?: string; companyName?: string }) {
       const payload: Record<string, unknown> = {};
       if (fields.headQuarter) payload.head_quarter = fields.headQuarter;
       if (fields.website) payload.website = fields.website;
       if (!Object.keys(payload).length) return { ok: true, skipped: true };
-      // FIX: Vincere's PUT /company/{id} verlangt registration_date auch bei Teil-Updates,
-      // sonst Fehler "registration_date cannot be null". Aktuelles Datum mitschicken.
+      // FIX: Vincere's PUT /company/{id} verlangt registration_date UND company_name auch bei
+      // Teil-Updates (sonst "registration_date cannot be null" bzw. "company_name cannot be blank").
+      // company_name wird per Parameter mitgegeben, falls nicht vorhanden per GET nachgeladen.
       const today = new Date().toISOString().split("T")[0] + "T00:00:00.000Z";
       payload.registration_date = today;
+      let companyName = fields.companyName;
+      if (!companyName) {
+              const getRes = await vincereFetch(`/api/v2/company/${companyId}`).catch(() => null);
+              if (getRes && getRes.ok) {
+                      const getData = await getRes.json().catch(() => ({}));
+                      companyName = getData.company_name || getData.name;
+              }
+      }
+      if (companyName) payload.company_name = companyName;
       const res = await vincereFetch(`/api/v2/company/${companyId}`, {
               method: "PUT",
               body: JSON.stringify(payload),
