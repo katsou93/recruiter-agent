@@ -120,12 +120,14 @@ export async function createVincereCompany(params: {
       city?: string;
       postcode?: string;
       address?: string; // volle Adresse, z.B. "Bahnhofstr. 5, 73630 Remshalden" (aus findContact)
+      phone?: string; // Telefon-Zentrale, z.B. aus dem Impressum/Kontakt ermittelt
 }) {
       const today = new Date().toISOString().split("T")[0] + "T00:00:00.000Z";
       // FIX: Standort wird jetzt als head_quarter mitgesendet (vorher wurden city/postcode verworfen)
       const headQuarter = buildHeadQuarter(params);
       const payload: Record<string, unknown> = { company_name: params.name, registration_date: today };
       if (headQuarter) payload.head_quarter = headQuarter;
+      if (params.phone) payload.phone = params.phone;
       const res = await vincereFetch(`/api/v2/company`, {
               method: "POST",
               body: JSON.stringify(payload),
@@ -139,24 +141,27 @@ export async function createVincereCompany(params: {
               throw new Error(`Vincere Fehler ${res.status}: ${JSON.stringify(data)}`);
       }
       const companyId = data.id;
-      // Zusatzfelder per PUT nachziehen (bewaehrter Weg; head_quarter zusaetzlich, falls POST das Feld ignoriert)
-      const updates: Record<string, unknown> = {};
+      // Zusatzfelder per PUT nachziehen (bewaehrter Weg; head_quarter/phone zusaetzlich, falls POST
+      // das Feld ignoriert). PUT verlangt registration_date + company_name als Pflichtfelder.
+      const updates: Record<string, unknown> = { registration_date: today, company_name: params.name };
       if (params.website) updates.website = params.website;
       if (headQuarter) updates.head_quarter = headQuarter;
-      if (companyId && Object.keys(updates).length) {
+      if (params.phone) updates.phone = params.phone;
+      if (companyId && Object.keys(updates).length > 2) {
               await vincereFetch(`/api/v2/company/${companyId}`, {
                         method: "PUT",
                         body: JSON.stringify(updates),
               }).catch(() => {});
       }
-      return { ok: true, id: companyId, name: data.company_name, headQuarter: headQuarter || null };
+      return { ok: true, id: companyId, name: data.company_name, headQuarter: headQuarter || null, phone: params.phone || null };
 }
 
 // Ergaenzt Standort/Website an einem bestehenden Vincere-Unternehmen (fuer Backfill und Duplikat-Fall)
-export async function updateVincereCompany(companyId: number, fields: { headQuarter?: string; website?: string; companyName?: string }) {
+export async function updateVincereCompany(companyId: number, fields: { headQuarter?: string; website?: string; companyName?: string; phone?: string }) {
       const payload: Record<string, unknown> = {};
       if (fields.headQuarter) payload.head_quarter = fields.headQuarter;
       if (fields.website) payload.website = fields.website;
+      if (fields.phone) payload.phone = fields.phone;
       if (!Object.keys(payload).length) return { ok: true, skipped: true };
       // FIX: Vincere's PUT /company/{id} verlangt registration_date UND company_name auch bei
       // Teil-Updates (sonst "registration_date cannot be null" bzw. "company_name cannot be blank").
