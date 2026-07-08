@@ -125,9 +125,10 @@ export async function createVincereCompany(params: {
       const today = new Date().toISOString().split("T")[0] + "T00:00:00.000Z";
       // FIX: Standort wird jetzt als head_quarter mitgesendet (vorher wurden city/postcode verworfen)
       const headQuarter = buildHeadQuarter(params);
+      const normalizedPhone = normalizeGermanPhone(params.phone);
       const payload: Record<string, unknown> = { company_name: params.name, registration_date: today };
       if (headQuarter) payload.head_quarter = headQuarter;
-      if (params.phone) payload.phone = params.phone;
+      if (normalizedPhone) payload.phone = normalizedPhone;
       const res = await vincereFetch(`/api/v2/company`, {
               method: "POST",
               body: JSON.stringify(payload),
@@ -141,19 +142,47 @@ export async function createVincereCompany(params: {
               throw new Error(`Vincere Fehler ${res.status}: ${JSON.stringify(data)}`);
       }
       const companyId = data.id;
-      // Zusatzfelder per PUT nachziehen (bewaehrter Weg; head_quarter/phone zusaetzlich, falls POST
-      // das Feld ignoriert). PUT verlangt registration_date + company_name als Pflichtfelder.
+      // FIX: Zusatzfelder per PUT nachziehen. Der Fehler wurde vorher mit .catch(() => {}) STUMM
+      // verschluckt - dadurch schien alles "ok", obwohl z.B. der Standort nie ankam. Jetzt wird das
+      // Ergebnis (Erfolg oder Fehlermeldung) explizit zurueckgegeben, damit das sichtbar ist.
       const updates: Record<string, unknown> = { registration_date: today, company_name: params.name };
       if (params.website) updates.website = params.website;
       if (headQuarter) updates.head_quarter = headQuarter;
-      if (params.phone) updates.phone = params.phone;
+      if (normalizedPhone) updates.phone = normalizedPhone;
+      let updateResult: { ok: boolean; error?: string; detail?: unknown } = { ok: true };
       if (companyId && Object.keys(updates).length > 2) {
-              await vincereFetch(`/api/v2/company/${companyId}`, {
-                        method: "PUT",
-                        body: JSON.stringify(updates),
-              }).catch(() => {});
+              try {
+                      const updRes = await vincereFetch(`/api/v2/company/${companyId}`, {
+                            method: "PUT",
+                            body: JSON.stringify(updates),
+                      });
+                      const updData = await updRes.json().catch(() => ({}));
+                      if (!updRes.ok) {
+                          updateResult = { ok: false, error: `Vincere Fehler ${updRes.status}`, detail: updData };
+                      }
+              } catch (e: any) {
+                      updateResult = { ok: false, error: e.message };
+              }
       }
-      return { ok: true, id: companyId, name: data.company_name, headQuarter: headQuarter || null, phone: params.phone || null };
+      return {
+              ok: true,
+              id: companyId,
+              name: data.company_name,
+              headQuarter: headQuarter || null,
+              phone: normalizedPhone || null,
+              headQuarterUpdate: updateResult,
+      };
+}
+
+// FIX: Vincere braucht die Telefonnummer mit Laendervorwahl. Eine deutsche Nummer, die mit "0"
+// beginnt, wird auf "+49 " umgestellt; ist schon eine Vorwahl (+..) vorhanden, bleibt sie unveraendert.
+export function normalizeGermanPhone(phone?: string | null) {
+      if (!phone) return null;
+      const trimmed = phone.trim();
+      if (!trimmed) return null;
+      if (trimmed.startsWith("+")) return trimmed;
+      if (trimmed.startsWith("0")) return "+49 " + trimmed.slice(1).trim();
+      return trimmed;
 }
 
 // Ergaenzt Standort/Website an einem bestehenden Vincere-Unternehmen (fuer Backfill und Duplikat-Fall)
@@ -161,7 +190,8 @@ export async function updateVincereCompany(companyId: number, fields: { headQuar
       const payload: Record<string, unknown> = {};
       if (fields.headQuarter) payload.head_quarter = fields.headQuarter;
       if (fields.website) payload.website = fields.website;
-      if (fields.phone) payload.phone = fields.phone;
+      const normalizedPhone = normalizeGermanPhone(fields.phone);
+      if (normalizedPhone) payload.phone = normalizedPhone;
       if (!Object.keys(payload).length) return { ok: true, skipped: true };
       // FIX: Vincere's PUT /company/{id} verlangt registration_date UND company_name auch bei
       // Teil-Updates (sonst "registration_date cannot be null" bzw. "company_name cannot be blank").
