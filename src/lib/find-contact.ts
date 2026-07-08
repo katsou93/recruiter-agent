@@ -15,11 +15,36 @@ function upgradeEmail(cur, cand) { if (!cand) return cur; if (!cur) return cand;
 function bestPhone(text) { const m1 = text.match(/(?:Tel(?:efon|\.)?|Fon|Phone|Mobil)[\s.:]*([+\d][\d\s()\-\/]{7,18})/i); if (m1) return m1[1].trim().replace(/\s+/g, " "); const m2 = text.match(/(?:^|\s)((?:\+49|0)[\d\s()\-\/]{8,18})(?:\s|$)/m); if (m2) return m2[1].trim().replace(/\s+/g, " "); return null; }
 function extractAddress(t) { const re = new RegExp("([A-Z" + AEU + OEU + UEU + UE + AE + OE + "][a-zA-Z" + AE + OE + UE + AEU + OEU + UEU + SS + "\\-\\.\\s]{3,40}\\s+\\d{1,4}[a-zA-Z]?),?\\s+(\\d{5})\\s+([A-Z" + AEU + OEU + UEU + "][a-zA-Z" + AE + OE + UE + AEU + OEU + UEU + SS + "\\-\\s]{2,30}?)(?=[\\s\\n\\r,;]|$)", "i"); const m = t.match(re); if (!m) return null; let street = m[1].replace(/^.*?(?:GmbH|Co\.\s*KG|KG)\s+/i, "").trim(); if (street.length < 3) street = m[1].trim(); return street + ", " + m[2] + " " + m[3].trim(); }
 // Zieht den offiziellen (rechtlichen) Firmennamen aus dem Impressum, z.B. "Mueller Technik GmbH & Co. KG"
+// FIX: Auf grossen/komplexen Seiten landet oft Navigations-/Menuetext direkt vor dem eigentlichen
+// Firmennamen im flach gestrippten Text (z.B. "Privatkunden Ueber Uns Impressum EDEKABANK AG"),
+// weil stripHtml() alle HTML-Tags durch Leerzeichen ersetzt und die urspruengliche Struktur verloren
+// geht. cleanNameCandidate() schneidet bekannte Navigations-/Menuewoerter von links ab und begrenzt
+// die maximale Wortzahl, damit nur der eigentliche Firmenname (+ Rechtsform) uebrig bleibt.
+const NAV_NOISE = new Set([
+  "Privatkunden", "Firmenkunden", "Geschaeftskunden", "Geschäftskunden", "Nachhaltigkeit",
+  "Ueber", "Über", "Uns", "Unternehmen", "Investoren", "Newsroom", "Presse", "Blog", "Magazin",
+  "Home", "Startseite", "Menu", "Menü", "Navigation", "Suche", "Login", "Anmelden", "Konto",
+  "Standorte", "Aktuelles", "News", "Produkte", "Leistungen", "Services", "Loesungen", "Lösungen",
+  "Kontakt", "Karriere", "Jobs", "Stellenangebote", "Bewerbung", "Impressum", "Datenschutz",
+  "Rechtliches", "AGB", "Cookie", "Cookies", "Sitemap", "Barrierefreiheit", "Hilfe", "Support",
+]);
+function cleanNameCandidate(cand) {
+  const words = cand.split(/\s+/);
+  let cut = 0;
+  for (let i = 0; i < words.length - 1; i++) {
+    if (NAV_NOISE.has(words[i])) cut = i + 1;
+  }
+  let cleaned = words.slice(cut);
+  const MAX_WORDS = 6;
+  if (cleaned.length > MAX_WORDS) cleaned = cleaned.slice(cleaned.length - MAX_WORDS);
+  return cleaned.join(" ").trim();
+}
 function extractOfficialName(t, hint) {
   const legal = "(?:GmbH\\s*&\\s*Co\\.?\\s*KG|GmbH|AG\\s*&\\s*Co\\.?\\s*KG|KGaA|AG|UG\\s*\\(haftungsbeschr" + AE + "nkt\\)|UG|SE|OHG|eG|e\\.V\\.)";
   const re = new RegExp("([A-Z" + AEU + OEU + UEU + "][A-Za-z0-9" + AE + OE + UE + AEU + OEU + UEU + SS + "&.\\-\\s]{1,60}?\\s" + legal + ")", "g");
-  const matches = [...t.matchAll(re)].map((m) => m[1].replace(/\s+/g, " ").trim());
-  if (!matches.length) return null;
+  const rawMatches = [...t.matchAll(re)].map((m) => m[1].replace(/\s+/g, " ").trim());
+  if (!rawMatches.length) return null;
+  const matches = rawMatches.map(cleanNameCandidate).filter((c) => c.length > 0);
   const uniq = [...new Set(matches)];
   if (!hint || uniq.length === 1) return uniq[0];
   // FIX: Bei komplexen Seiten (z.B. grosse Firmen mit mehreren GmbH-Erwaehnungen) wird die
