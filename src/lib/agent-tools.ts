@@ -369,7 +369,15 @@ export const findCompanyContactTool = tool({
   execute: async (params) => {
     try {
       const { findContact } = await import("@/lib/find-contact");
-      return await findContact(params);
+      // FIX: findContact erwartet das Feld "name", das Tool-Schema nennt es "companyName" -
+      // ohne diese Zuordnung kam immer error_no_name zurueck, egal was uebergeben wurde.
+      return await findContact({
+        name: params.companyName,
+        city: params.city,
+        website: params.website,
+        jobText: params.jobText,
+        externeUrl: params.externeUrl,
+      });
     } catch (e) {
       return { error: e.message };
     }
