@@ -15,7 +15,25 @@ function upgradeEmail(cur, cand) { if (!cand) return cur; if (!cur) return cand;
 function bestPhone(text) { const m1 = text.match(/(?:Tel(?:efon|\.)?|Fon|Phone|Mobil)[\s.:]*([+\d][\d\s()\-\/]{7,18})/i); if (m1) return m1[1].trim().replace(/\s+/g, " "); const m2 = text.match(/(?:^|\s)((?:\+49|0)[\d\s()\-\/]{8,18})(?:\s|$)/m); if (m2) return m2[1].trim().replace(/\s+/g, " "); return null; }
 function extractAddress(t) { const re = new RegExp("([A-Z" + AEU + OEU + UEU + UE + AE + OE + "][a-zA-Z" + AE + OE + UE + AEU + OEU + UEU + SS + "\\-\\.\\s]{3,40}\\s+\\d{1,4}[a-zA-Z]?),?\\s+(\\d{5})\\s+([A-Z" + AEU + OEU + UEU + "][a-zA-Z" + AE + OE + UE + AEU + OEU + UEU + SS + "\\-\\s]{2,30}?)(?=[\\s\\n\\r,;]|$)", "i"); const m = t.match(re); if (!m) return null; let street = m[1].replace(/^.*?(?:GmbH|Co\.\s*KG|KG)\s+/i, "").trim(); if (street.length < 3) street = m[1].trim(); return street + ", " + m[2] + " " + m[3].trim(); }
 // Zieht den offiziellen (rechtlichen) Firmennamen aus dem Impressum, z.B. "Mueller Technik GmbH & Co. KG"
-function extractOfficialName(t) { const legal = "(?:GmbH\\s*&\\s*Co\\.?\\s*KG|GmbH|AG\\s*&\\s*Co\\.?\\s*KG|KGaA|AG|UG\\s*\\(haftungsbeschr" + AE + "nkt\\)|UG|SE|OHG|eG|e\\.V\\.)"; const re = new RegExp("([A-Z" + AEU + OEU + UEU + "][A-Za-z0-9" + AE + OE + UE + AEU + OEU + UEU + SS + "&.\\-\\s]{1,60}?\\s" + legal + ")"); const m = t.match(re); if (!m) return null; return m[1].replace(/\s+/g, " ").trim(); }
+function extractOfficialName(t, hint) {
+  const legal = "(?:GmbH\\s*&\\s*Co\\.?\\s*KG|GmbH|AG\\s*&\\s*Co\\.?\\s*KG|KGaA|AG|UG\\s*\\(haftungsbeschr" + AE + "nkt\\)|UG|SE|OHG|eG|e\\.V\\.)";
+  const re = new RegExp("([A-Z" + AEU + OEU + UEU + "][A-Za-z0-9" + AE + OE + UE + AEU + OEU + UEU + SS + "&.\\-\\s]{1,60}?\\s" + legal + ")", "g");
+  const matches = [...t.matchAll(re)].map((m) => m[1].replace(/\s+/g, " ").trim());
+  if (!matches.length) return null;
+  const uniq = [...new Set(matches)];
+  if (!hint || uniq.length === 1) return uniq[0];
+  // FIX: Bei komplexen Seiten (z.B. grosse Firmen mit mehreren GmbH-Erwaehnungen) wird die
+  // Kandidatin bevorzugt, die die meisten Woerter mit dem Job-Board-Namen teilt, statt einfach
+  // die erste im Text gefundene GmbH zu nehmen.
+  const hintWords = hint.toLowerCase().replace(/[^a-z0-9" + AE + OE + UE + SS + "\\s]/g, " ").split(/\s+/).filter((w) => w.length > 2);
+  let best = uniq[0], bestScore = -1;
+  for (const cand of uniq) {
+    const cLower = cand.toLowerCase();
+    const score = hintWords.filter((w) => cLower.includes(w)).length;
+    if (score > bestScore) { bestScore = score; best = cand; }
+  }
+  return best;
+}
 const BL = new Set(["Engineering", "Software", "Solutions", "Systems", "Services", "Technologies", "Consulting", "Business", "International", "Industrial", "Technical", "Digital", "Applications", "Products", "Operations", "Innovation", "Automation", "Division", "Manufacturing", "Mechanical", "Electrical", "Electronic", "Management", "Development", "Research", "Design", "Quality", "Production", "Gmbh", "Gruppe", "Group", "Holding", "Corporate", "Kontakt", "Karriere", "Bewerbung", "Impressum", "Datenschutz", "Stellenangebote", "Leistungen", "Produkte", "Unternehmen", "Standorte", "Aktuelles", "Presse", "Berufsfelder", "Berufe", "Bewerbende", "Bewerber", "Vorteile", "Leistung", "Infos", "Informationen", "Jobs", "Head", "People", "Culture", "Kultur", "Ihre", "Unser", "Unsere", "Ihren", "Ihrem", "Ihrer", "Unseren", "Unserem", "Unserer", "Seine", "Sein", "Dein", "Deine"]);
 function isRealName(fn, ln) { const fc = fn.replace(/^(Dr\.|Prof\.|Dipl\.|Ing\.)\s*/i, "").trim(); if (fc.length < 2 || ln.length < 2) return false; if (BL.has(fc) || BL.has(ln)) return false; if (/^[A-Z]{1,3}$/.test(fc) || /^[A-Z]{1,3}$/.test(ln)) return false; const startRe = new RegExp("^[A-Z" + AEU + OEU + UEU + "]"); if (!startRe.test(fc) || !startRe.test(ln)) return false; if (/\d/.test(fc) || /\d/.test(ln)) return false; if (fc.length > 25 || ln.length > 40) return false; const dashLower = new RegExp("-[a-z" + AE + OE + UE + SS + "]"); if (dashLower.test(ln)) return false; return true; }
 function getHRPos(c) { const t = (c || "").toLowerCase(); if (t.includes("personalleiter")) return "Personalleiter/in"; if (t.includes("people") || t.includes("culture")) return "People & Culture"; if (t.includes("personal") || t.includes("human resources")) return "HR Manager/in"; if (t.includes("recruit")) return "Recruiter/in"; if (t.includes("talent")) return "Talent Acquisition"; return "HR Ansprechpartner/in"; }
@@ -28,7 +46,7 @@ async function findWebsite(n, c) { const [g, p] = await Promise.all([findWebsite
 async function fetchPage(url, timeout = 6000) { const ctrl = new AbortController(); const t = setTimeout(() => ctrl.abort(), timeout); try { const r = await fetch(url, { headers: { "User-Agent": UA, Accept: "text/html", "Accept-Language": "de-DE,de;q=0.9" }, redirect: "follow", signal: ctrl.signal }); clearTimeout(t); if (!r.ok) return null; const html = await r.text(); return { url: r.url || url, text: stripHtml(html), html }; } catch { clearTimeout(t); return null; } }
 // Eigenstaendige Adress-Ermittlung: zieht die Firmenadresse direkt aus dem Impressum
 // (Fallback: Kontakt-/Startseite) - unabhaengig davon, ob ein Ansprechpartner gefunden wird.
-async function fetchImpressumData(base) { if (!base) return { address: null, officialName: null }; const urls = [base + "/impressum", base + "/de/impressum", base + "/legal/impressum", base + "/rechtliches", base + "/kontakt", base]; const results = await Promise.all(urls.map((u) => fetchPage(u))); let address = null, officialName = null; for (const r of results) { if (!r) continue; if (!address) address = extractAddress(r.text); if (!officialName) officialName = extractOfficialName(r.text); if (address && officialName) break; } return { address, officialName }; }
+async function fetchImpressumData(base, hint) { if (!base) return { address: null, officialName: null }; const urls = [base + "/impressum", base + "/de/impressum", base + "/legal/impressum", base + "/rechtliches", base + "/kontakt", base]; const results = await Promise.all(urls.map((u) => fetchPage(u))); let address = null, officialName = null; for (const r of results) { if (!r) continue; if (!address) address = extractAddress(r.text); if (!officialName) officialName = extractOfficialName(r.text, hint); if (address && officialName) break; } return { address, officialName }; }
 
 export async function findContact(params) {
     const { name, city, website, jobText, externeUrl } = params;
@@ -46,7 +64,7 @@ export async function findContact(params) {
         if (!address || !officialName) {
               if (!base) base = await findWebsite(name, city);
               if (base) {
-                    const impData = await fetchImpressumData(base);
+                    const impData = await fetchImpressumData(base, name);
                     if (!address) address = impData.address;
                     if (!officialName) officialName = impData.officialName;
               }
@@ -66,7 +84,7 @@ export async function findContact(params) {
           const ep = await fetchPage(extUrl);
           if (ep) {
                   if (!address) address = extractAddress(ep.text);
-                  if (!officialName) officialName = extractOfficialName(ep.text);
+                  if (!officialName) officialName = extractOfficialName(ep.text, name);
                   const hr = extractHR(ep.text, ep.html);
                   if (hr) return withAddress({ ...hr, email: hr._email || bestEmail(ep.text), phone: bestPhone(ep.text), source: "externe_url", website: base });
                   const mm = ep.html?.match(/href="mailto:([^"]+)"/i);
@@ -94,18 +112,21 @@ export async function findContact(params) {
       ];
     const results = await Promise.all(pages.map((p) => fetchPage(p.url).then((r) => (r ? { ...p, ...r } : null))));
 
-  let bestEmailFound = null, bestPhoneFound = null, hrContact = null, ceoContact = null;
+  let bestEmailFound = null, hrContact = null, ceoContact = null;
+    // FIX: Telefonnummer wird bevorzugt von Kontakt-/Impressum-Seite genommen (dort steht die
+    // echte Firmen-Zentrale), nicht einfach die erste im gesamten Crawl gefundene Nummer.
+    const phoneByType = {};
     for (const page of results) {
           if (!page) continue;
           const em = bestEmail(page.text);
           const ph = bestPhone(page.text);
           bestEmailFound = upgradeEmail(bestEmailFound, em);
-          if (ph && !bestPhoneFound) bestPhoneFound = ph;
+          if (ph && !phoneByType[page.type]) phoneByType[page.type] = ph;
           // FIX: Adresse UND offizieller Name aus JEDER Impressum-Seite ziehen - unabhaengig
           // davon, ob ein CEO gefunden wird
           if (page.type === "impressum") {
                   if (!address) address = extractAddress(page.text);
-                  if (!officialName) officialName = extractOfficialName(page.text);
+                  if (!officialName) officialName = extractOfficialName(page.text, name);
           }
           if (!hrContact && page.type !== "impressum") {
                   const hr = extractHR(page.text, page.html);
@@ -116,19 +137,29 @@ export async function findContact(params) {
                   if (ceo) ceoContact = { ...ceo, email: em || null, phone: ph || null, source: "impressum_ceo", website: base };
           }
     }
+    const bestPhoneFound =
+          phoneByType["contact"] || phoneByType["impressum"] || phoneByType["home"] ||
+          phoneByType["career"] || phoneByType["about"] || Object.values(phoneByType)[0] || null;
     // Fallback: Adresse von Kontakt-/Team-/Startseite, falls das Impressum nichts liefert
     if (!address) { for (const page of results) { if (!page) continue; const a = extractAddress(page.text); if (a) { address = a; break; } } }
-    if (!officialName) { for (const page of results) { if (!page) continue; const o = extractOfficialName(page.text); if (o) { officialName = o; break; } } }
+    if (!officialName) { for (const page of results) { if (!page) continue; const o = extractOfficialName(page.text, name); if (o) { officialName = o; break; } } }
 
-  if (hrContact) return { ...hrContact, address: address || null, officialName: officialName || null };
-    if (ceoContact) return { ...ceoContact, address: address || null, officialName: officialName || null };
+  // FIX: Priorisierung angepasst - eine generische HR-/Bewerbungs-Adresse (bewerbung@/personal@/
+  // karriere@) ist fuer die Kontaktaufnahme sinnvoller als die Geschaeftsfuehrung aus dem Impressum,
+  // besonders bei groesseren Unternehmen. Reihenfolge jetzt: 1) benannter HR-Kontakt 2) generische
+  // HR-E-Mail (auch ohne Namen) 3) Geschaeftsfuehrung aus dem Impressum 4) sonstige gefundene E-Mail
+  // 5) konstruierte bewerbung@-Adresse.
+  if (hrContact) return { ...hrContact, phone: hrContact.phone || bestPhoneFound, address: address || null, officialName: officialName || null };
+    if (bestEmailFound && HR_EMAIL.test(bestEmailFound)) {
+          return { ...empty, firstName: "Bewerbung", lastName: name.split(/\s+/)[0], email: bestEmailFound, phone: bestPhoneFound, position: "HR Bewerbungskontakt", source: "hr_email_no_name", website: base, address: address || null, officialName: officialName || null };
+    }
+    if (ceoContact) return { ...ceoContact, phone: ceoContact.phone || bestPhoneFound, address: address || null, officialName: officialName || null };
     if (bestEmailFound) {
-          const isHR = HR_EMAIL.test(bestEmailFound);
-          return { ...empty, firstName: isHR ? "Bewerbung" : "Personalabteilung", lastName: name.split(/\s+/)[0], email: bestEmailFound, phone: bestPhoneFound, position: isHR ? "HR Bewerbungskontakt" : "Ansprechpartner/in", source: "email_fallback", website: base, address: address || null, officialName: officialName || null };
+          return { ...empty, firstName: "Personalabteilung", lastName: name.split(/\s+/)[0], email: bestEmailFound, phone: bestPhoneFound, position: "Ansprechpartner/in", source: "email_fallback", website: base, address: address || null, officialName: officialName || null };
     }
     try {
           const domain = new URL(base).hostname.replace(/^www\./, "");
-          return { ...empty, firstName: "Bewerbung", lastName: name.split(/\s+/)[0], email: "bewerbung@" + domain, position: "HR Bewerbungskontakt", source: "constructed_email", website: base, address: address || null, officialName: officialName || null };
+          return { ...empty, firstName: "Bewerbung", lastName: name.split(/\s+/)[0], email: "bewerbung@" + domain, phone: bestPhoneFound, position: "HR Bewerbungskontakt", source: "constructed_email", website: base, address: address || null, officialName: officialName || null };
     } catch (_) {}
-    return { ...empty, website: base, address: address || null, officialName: officialName || null, source: "no_contact_found" };
+    return { ...empty, website: base, phone: bestPhoneFound, address: address || null, officialName: officialName || null, source: "no_contact_found" };
 }
