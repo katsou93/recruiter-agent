@@ -27,6 +27,7 @@ const NAV_NOISE = new Set([
   "Standorte", "Aktuelles", "News", "Produkte", "Leistungen", "Services", "Loesungen", "Lösungen",
   "Kontakt", "Karriere", "Jobs", "Stellenangebote", "Bewerbung", "Impressum", "Datenschutz",
   "Rechtliches", "AGB", "Cookie", "Cookies", "Sitemap", "Barrierefreiheit", "Hilfe", "Support",
+  "Von", "der", "die", "das", "bei", "Angaben", "gemäß", "TMG", "Verantwortlich",
 ]);
 function cleanNameCandidate(cand) {
   const words = cand.split(/\s+/);
