@@ -332,3 +332,20 @@ export async function createVincereContact(params: {
       }
       return { ok: true, id: data.id || data.contact_id || null, data };
 }
+
+// DIAGNOSE-Funktionen: Vincere hat einen eigenen Locations-Sub-Endpoint pro Firma. Diese Funktionen
+// dienen dazu, das exakte Feldschema live herauszufinden.
+export async function getCompanyLocations(companyId: number) {
+      const res = await vincereFetch(`/api/v2/company/${companyId}/location`);
+      const data = await res.json().catch(() => ({}));
+      return { ok: res.ok, status: res.status, data };
+}
+
+export async function createCompanyLocation(companyId: number, fields: Record<string, unknown>) {
+      const res = await vincereFetch(`/api/v2/company/${companyId}/location`, {
+              method: "POST",
+              body: JSON.stringify(fields),
+      });
+      const data = await res.json().catch(() => ({}));
+      return { ok: res.ok, status: res.status, data };
+}
