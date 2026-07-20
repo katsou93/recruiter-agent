@@ -164,6 +164,32 @@ export async function createVincereCompany(params: {
                       updateResult = { ok: false, error: e.message };
               }
       }
+      // FIX: Vincere hat einen EIGENEN Locations-Sub-Endpoint (getrennt von head_quarter), der in
+      // der UI unter "Locations" angezeigt wird. Pflichtfeld ist "location_name" (per Diagnose
+      // herausgefunden - GET liefert 405, POST braucht location_name sonst "Data is invalid").
+      let locationResult: { ok: boolean; error?: string; detail?: unknown; skipped?: boolean } = { ok: true, skipped: true };
+      const parsedAddr = parseFullAddress(params.address);
+      if (companyId && (parsedAddr || params.city)) {
+              const locationName = parsedAddr?.city || params.city || params.name;
+              const locPayload: Record<string, unknown> = { location_name: locationName, country: "Germany" };
+              if (parsedAddr?.address1) locPayload.address1 = parsedAddr.address1;
+              if (parsedAddr?.city || params.city) locPayload.city = parsedAddr?.city || params.city;
+              if (parsedAddr?.postcode || params.postcode) locPayload.postcode = parsedAddr?.postcode || params.postcode;
+              try {
+                      const locRes = await vincereFetch(`/api/v2/company/${companyId}/location`, {
+                            method: "POST",
+                            body: JSON.stringify(locPayload),
+                      });
+                      const locData = await locRes.json().catch(() => ({}));
+                      if (!locRes.ok) {
+                              locationResult = { ok: false, error: `Vincere Fehler ${locRes.status}`, detail: locData };
+                      } else {
+                              locationResult = { ok: true };
+                      }
+              } catch (e: any) {
+                      locationResult = { ok: false, error: e.message };
+              }
+      }
       return {
               ok: true,
               id: companyId,
@@ -171,7 +197,20 @@ export async function createVincereCompany(params: {
               headQuarter: headQuarter || null,
               phone: normalizedPhone || null,
               headQuarterUpdate: updateResult,
+              locationResult,
       };
+}
+
+// Zerlegt eine volle Adresse ("Zirkusweg 1, 20359 Hamburg") in Strasse/PLZ/Ort fuer die
+// Vincere Locations-API.
+function parseFullAddress(address?: string | null) {
+      if (!address) return null;
+      const parts = address.split(",").map((s) => s.trim());
+      if (parts.length < 2) return null;
+      const street = parts[0];
+      const m = parts[1].match(/^(\d{5})\s+(.+)$/);
+      if (!m) return null;
+      return { address1: street, postcode: m[1], city: m[2] };
 }
 
 // FIX: Vincere braucht die Telefonnummer mit Laendervorwahl. Eine deutsche Nummer, die mit "0"
