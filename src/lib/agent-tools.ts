@@ -237,7 +237,7 @@ export const searchVincereCandidatesTool = tool({
 });
 
 export const searchVincereCompaniesTool = tool({
-  description: "Sucht Unternehmen direkt im Vincere-System (ATS) nach Stichwort.",
+  description: "Sucht Unternehmen direkt im Vincere-System (ATS) nach Stichwort. Hinweis: fuer Doppelte-Anlegen-Pruefung NIE manuell mit diesem Tool vorab checken - onboardCompanyToVincere macht das intern zuverlaessiger (sucht anhand des offiziellen Impressum-Namens statt des Job-Board-Namens).",
   inputSchema: z.object({
     keyword: z.string(),
     rows: z.number().optional().default(10),
@@ -386,7 +386,7 @@ export const findCompanyContactTool = tool({
 
 export const onboardCompanyToVincereTool = tool({
   description:
-    "Kompletter Lead-Import-Schritt fuer ein neues Unternehmen in Vincere. Ablauf: 1) sucht Ansprechpartner + Standort + offiziellen Firmennamen aus dem Impressum, 2) gleicht ZUERST anhand des offiziellen Impressum-Namens gegen Vincere ab (nicht nur der Job-Board-Name, der oft abweicht) - existiert die Firma bereits, wird NICHTS doppelt angelegt, 3) legt das Unternehmen NUR an, wenn ein Ansprechpartner gefunden wurde (Name+Email oder Email) - STRIKTE REGEL: es darf NIE ein Unternehmen ohne Kontakt in Vincere landen, wird keiner gefunden meldet das Tool das explizit als 'kein Kontakt gefunden - nicht angelegt' statt die Firma trotzdem anzulegen. Nutze IMMER dieses Tool fuer den Lead-Import aus der Jobsuche, nie createVincereCompany isoliert.",
+    "Kompletter Lead-Import-Schritt fuer ein neues Unternehmen in Vincere. Ablauf: 1) sucht Ansprechpartner + Standort + offiziellen Firmennamen aus dem Impressum, 2) gleicht ZUERST anhand des offiziellen Impressum-Namens gegen Vincere ab (nicht nur der Job-Board-Name, der oft abweicht) - existiert die Firma bereits, wird NICHTS doppelt angelegt (dieser Abgleich ist die einzige noetige Duplikat-Pruefung - kein separates searchVincereCompanies vorher noetig), 3) legt das Unternehmen NUR an, wenn ein Ansprechpartner gefunden wurde (Name+Email oder Email) - STRIKTE REGEL: es darf NIE ein Unternehmen ohne Kontakt in Vincere landen, wird keiner gefunden meldet das Tool das explizit als 'kein Kontakt gefunden - nicht angelegt' statt die Firma trotzdem anzulegen. Nutze IMMER dieses Tool fuer den Lead-Import aus der Jobsuche, nie createVincereCompany isoliert.",
   inputSchema: z.object({
     companyName: z.string().describe("Firmenname wie auf dem Jobportal angegeben"),
     city: z.string().optional().describe("Ort, falls aus der Stellenanzeige bekannt"),
@@ -550,6 +550,35 @@ export const backfillVincereCompanyTool = tool({
   },
 });
 
+export const testVincereLocationApiTool = tool({
+  description: "DIAGNOSE: Testet die Vincere Locations-API fuer eine Firma (GET bestehende Locations, dann Test-POST mit einer Beispieladresse).",
+  inputSchema: z.object({
+    companyId: z.number(),
+    address1: z.string().optional(),
+    city: z.string().optional(),
+    postcode: z.string().optional(),
+    country: z.string().optional(),
+  }),
+  execute: async (params) => {
+    try {
+      const { getCompanyLocations, createCompanyLocation } = await import("@/lib/vincere");
+      const existing = await getCompanyLocations(params.companyId);
+      let createResult = null;
+      if (params.address1 || params.city) {
+        createResult = await createCompanyLocation(params.companyId, {
+          address1: params.address1,
+          city: params.city,
+          postcode: params.postcode,
+          country: params.country || "Germany",
+        });
+      }
+      return { existing, createResult };
+    } catch (e) {
+      return { error: e.message };
+    }
+  },
+});
+
 export const allTools = {
   saveCandidate: saveCandidateTool,
   searchCandidates: searchCandidatesTool,
@@ -570,4 +599,5 @@ export const allTools = {
   onboardCompanyToVincere: onboardCompanyToVincereTool,
   listIncompleteVincereCompanies: listIncompleteVincereCompaniesTool,
   backfillVincereCompany: backfillVincereCompanyTool,
+  testVincereLocationApi: testVincereLocationApiTool,
 };
