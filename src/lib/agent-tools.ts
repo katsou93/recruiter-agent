@@ -579,6 +579,22 @@ export const testVincereLocationApiTool = tool({
   },
 });
 
+export const testCreateVincereJobTool = tool({
+  description: "DIAGNOSE: Testet die Vincere Job-API mit beliebigen Feldern, um das exakte Schema herauszufinden. Gib rohe Feldnamen als JSON-String in fieldsJson.",
+  inputSchema: z.object({
+    fieldsJson: z.string().describe("JSON-Objekt als String mit den Feldern fuer den Job, z.B. {\"job_title\":\"X\",\"company_id\":123}"),
+  }),
+  execute: async ({ fieldsJson }) => {
+    try {
+      const { testCreateVincereJob } = await import("@/lib/vincere");
+      const fields = JSON.parse(fieldsJson);
+      return await testCreateVincereJob(fields);
+    } catch (e) {
+      return { error: e.message };
+    }
+  },
+});
+
 export const allTools = {
   saveCandidate: saveCandidateTool,
   searchCandidates: searchCandidatesTool,
@@ -600,4 +616,5 @@ export const allTools = {
   listIncompleteVincereCompanies: listIncompleteVincereCompaniesTool,
   backfillVincereCompany: backfillVincereCompanyTool,
   testVincereLocationApi: testVincereLocationApiTool,
+  testCreateVincereJob: testCreateVincereJobTool,
 };
