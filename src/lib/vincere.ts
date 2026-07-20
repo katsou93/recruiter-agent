@@ -256,9 +256,18 @@ export async function listVincereCompanies(start = 0, rows = 100) {
 }
 
 export async function findVincereCompanyByName(name: string) {
-      const norm = (s: string) => s.toLowerCase().replace(/\s+/g, "").replace(/gmbh|ag|kg|se/g, "");
+      const norm = (s: string) => s.toLowerCase().replace(/\s+/g, "").replace(/gmbh|ag|kg|se|co|ug|ohg|eg/g, "").replace(/[^a-z0-9\u00e4\u00f6\u00fc\u00df]/g, "");
       const normQ = norm(name);
-      const res = await vincereFetch(`/api/v2/company/search/fl=id,name?keyword=${encodeURIComponent(name)}&rows=5`);
+      // FIX: Volle Firmennamen (mit Rechtsform, "&", Punkten) fuehren bei Vincere's Suche oft zu
+      // keinen Treffern, obwohl die Firma existiert (z.B. Schreibweisen-Unterschiede "GmbH & Co. KG"
+      // vs "GmbH & Co KG"). Stattdessen wird nur das erste markante Wort als Suchbegriff genutzt -
+      // robuster, und die genaue Zuordnung passiert danach lokal per Normalisierung/Fuzzy-Match.
+      const coreWord =
+              name
+                      .replace(/\bGmbH\s*&\s*Co\.?\s*KG\b|\bGmbH\b|\bAG\b|\bKGaA\b|\bKG\b|\bSE\b|\bUG\b|\bOHG\b|\beG\b|\be\.V\.\b/gi, "")
+                      .trim()
+                      .split(/[\s\-&]+/)[0] || name;
+      const res = await vincereFetch(`/api/v2/company/search/fl=id,name?keyword=${encodeURIComponent(coreWord)}&rows=25`);
       if (!res.ok) return null;
       const data = await res.json();
       const items = data.result?.items || [];
