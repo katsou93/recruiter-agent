@@ -397,3 +397,13 @@ export async function createCompanyLocation(companyId: number, fields: Record<st
       const data = await res.json().catch(() => ({}));
       return { ok: res.ok, status: res.status, data };
 }
+
+// DIAGNOSE-Funktion: Testet die Vincere Job/Position-API, um das exakte Feldschema herauszufinden.
+export async function testCreateVincereJob(fields: Record<string, unknown>) {
+      const res = await vincereFetch(`/api/v2/job`, {
+              method: "POST",
+              body: JSON.stringify(fields),
+      });
+      const data = await res.json().catch(() => ({}));
+      return { ok: res.ok, status: res.status, data };
+}
