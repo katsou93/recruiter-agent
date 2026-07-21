@@ -399,11 +399,11 @@ export async function createCompanyLocation(companyId: number, fields: Record<st
 }
 
 // DIAGNOSE-Funktion: Testet die Vincere Job/Position-API, um das exakte Feldschema herauszufinden.
-export async function testCreateVincereJob(fields: Record<string, unknown>) {
-      const res = await vincereFetch(`/api/v2/job`, {
+export async function testCreateVincereJob(fields: Record<string, unknown>, path?: string) {
+      const res = await vincereFetch(path || `/api/v2/job`, {
               method: "POST",
               body: JSON.stringify(fields),
       });
       const data = await res.json().catch(() => ({}));
-      return { ok: res.ok, status: res.status, data };
+      return { ok: res.ok, status: res.status, data, pathUsed: path || "/api/v2/job" };
 }
