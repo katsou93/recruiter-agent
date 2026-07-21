@@ -407,3 +407,50 @@ export async function testCreateVincereJob(fields: Record<string, unknown>, path
       const data = await res.json().catch(() => ({}));
       return { ok: res.ok, status: res.status, data, pathUsed: path || "/api/v2/job" };
 }
+
+// Legt eine Stellenanzeige (Job/Position) in Vincere an. Endpunkt ist /api/v2/position (NICHT
+// /api/v2/job - das gibt 404). Pflichtfelder wurden per Diagnose herausgefunden: job_title,
+// company_id, registration_date, internal_description, public_description, compensation (als
+// Objekt, nicht String!), job_type, employment_type, open_date, contact_id.
+export async function createVincereJob(params: {
+      jobTitle: string;
+      companyId: number;
+      contactId: number;
+      internalDescription: string;
+      publicDescription: string;
+      city?: string;
+      minPay?: number;
+      maxPay?: number;
+      currency?: string; // Standard "EUR"
+      jobType?: string; // Standard "PERMANENT"
+      employmentType?: string; // Standard "FULL_TIME"
+}) {
+      const today = new Date().toISOString().split("T")[0] + "T00:00:00.000Z";
+      const payload: Record<string, unknown> = {
+              job_title: params.jobTitle,
+              company_id: params.companyId,
+              contact_id: params.contactId,
+              registration_date: today,
+              open_date: today,
+              internal_description: params.internalDescription,
+              public_description: params.publicDescription,
+              job_type: params.jobType || "PERMANENT",
+              employment_type: params.employmentType || "FULL_TIME",
+              compensation: {
+                      pay_type: "SALARY",
+                      min_pay: params.minPay ?? 50000,
+                      max_pay: params.maxPay ?? 70000,
+                      currency: params.currency || "EUR",
+              },
+      };
+      if (params.city) payload.city = params.city;
+      const res = await vincereFetch(`/api/v2/position`, {
+              method: "POST",
+              body: JSON.stringify(payload),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+              return { ok: false, error: `Vincere Fehler ${res.status}`, detail: data };
+      }
+      return { ok: true, id: data.id };
+}
