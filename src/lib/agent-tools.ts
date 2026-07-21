@@ -580,15 +580,16 @@ export const testVincereLocationApiTool = tool({
 });
 
 export const testCreateVincereJobTool = tool({
-  description: "DIAGNOSE: Testet die Vincere Job-API mit beliebigen Feldern, um das exakte Schema herauszufinden. Gib rohe Feldnamen als JSON-String in fieldsJson.",
+  description: "DIAGNOSE: Testet die Vincere Job-API mit beliebigen Feldern und optionalem Pfad, um das exakte Schema/den Endpunkt herauszufinden. Gib rohe Feldnamen als JSON-String in fieldsJson.",
   inputSchema: z.object({
     fieldsJson: z.string().describe("JSON-Objekt als String mit den Feldern fuer den Job, z.B. {\"job_title\":\"X\",\"company_id\":123}"),
+    path: z.string().optional().describe("Optionaler API-Pfad, Standard /api/v2/job. Zum Testen von Alternativen wie /api/v2/position."),
   }),
-  execute: async ({ fieldsJson }) => {
+  execute: async ({ fieldsJson, path }) => {
     try {
       const { testCreateVincereJob } = await import("@/lib/vincere");
       const fields = JSON.parse(fieldsJson);
-      return await testCreateVincereJob(fields);
+      return await testCreateVincereJob(fields, path);
     } catch (e) {
       return { error: e.message };
     }
