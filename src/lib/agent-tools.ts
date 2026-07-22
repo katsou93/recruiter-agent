@@ -596,6 +596,300 @@ export const testCreateVincereJobTool = tool({
   },
 });
 
+
+// ===========================================================================
+// SPEKULATIVE STELLENANZEIGEN
+// ===========================================================================
+// Anzeigen zur Kandidatengewinnung ohne konkretes Kundenmandat, alle an der
+// Sammelfirma "Stellenanzeigen" (14534) mit Kontakt "Recruiting Team" (37109).
+//
+// Das Feldschema von POST /api/v2/position ist heikel: compensation muss ein
+// Objekt sein, der Standort ist eine ID statt Freitext, und beim Anlegen eines
+// Standorts ist location_types Pflicht - fehlt es, antwortet Vincere mit einem
+// nichtssagenden 500er. Diese Fallstricke stehen hier einmal im Code statt in
+// jeder Anweisung an den Agenten.
+
+const SPEC_COMPANY_ID = 14534;
+const SPEC_CONTACT_ID = 37109;
+
+/** Standorte der Sammelfirma. Schluessel sind normalisiert (klein, ohne Umlaute). */
+const SPEC_LOCATIONS: Record<string, number> = {
+  berlin: 14097,
+  hamburg: 14092,
+  muenchen: 14098,
+  koeln: 14109,
+  "frankfurt am main": 14101,
+  frankfurt: 14101,
+  stuttgart: 14111,
+  duesseldorf: 14106,
+  leipzig: 14093,
+  dortmund: 14103,
+  essen: 14094,
+  bremen: 14107,
+  dresden: 14100,
+  hannover: 14095,
+  nuernberg: 14099,
+  duisburg: 14104,
+  bochum: 14110,
+  wuppertal: 14102,
+  bielefeld: 14105,
+  bonn: 14096,
+  muenster: 14108,
+};
+
+/** "Muenchen", "MÜNCHEN" und "münchen" sollen denselben Standort treffen. */
+function normalizeCity(city: string): string {
+  return (city || "")
+    .toLowerCase()
+    .replace(/ä/g, "ae")
+    .replace(/ö/g, "oe")
+    .replace(/ü/g, "ue")
+    .replace(/ß/g, "ss")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+const STANDARD_BENEFITS = [
+  "Wettbewerbsfähiges Gehalt mit regelmäßiger Überprüfung",
+  "Flexible Arbeitszeiten und hybrides Arbeiten",
+  "Fachliche Weiterbildung und Zertifizierungsunterstützung",
+  "30 Urlaubstage",
+  "Modernes Equipment und aktuelle Softwarelizenzen",
+  "Betriebliche Altersversorgung und Zuschüsse",
+];
+
+const ANSPRECHPARTNER =
+  "<h4>IHR ANSPRECHPARTNER</h4><p>Sie haben Interesse oder möchten mehr erfahren? " +
+  "Senden Sie Ihren Lebenslauf an: info@codari.de – Einer unserer Berater meldet " +
+  "sich zeitnah bei Ihnen.</p>";
+
+const GLEICHSTELLUNG =
+  "<h4>GLEICHSTELLUNG</h4><p>Wir freuen uns über Bewerbungen von Menschen jeglichen " +
+  "Geschlechts, Alters, jeder Nationalität, Religion oder Weltanschauung sowie " +
+  "Bewerbungen von Menschen mit Behinderungen. Bei CODARI zählt Ihre Qualifikation " +
+  "– nicht Ihre Herkunft.</p>";
+
+/** Schuetzt davor, dass roher Text die HTML-Struktur zerlegt. */
+function esc(s: string): string {
+  return String(s ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+}
+
+function list(items: string[]): string {
+  return "<ul>" + items.map((i) => "<li>" + esc(i) + "</li>").join("") + "</ul>";
+}
+
+/**
+ * Baut die oeffentliche Beschreibung im CODARI-Hausformat.
+ * Reihenfolge und Abschnitte sind bewusst fest verdrahtet - sie sind der
+ * Wiedererkennungswert der Anzeigen und sollen nicht je nach Tagesform variieren.
+ *
+ * Kein Gehalt im oeffentlichen Text: die Spanne gehoert in compensation und in
+ * die interne Beschreibung.
+ */
+function buildPublicDescription(params: {
+  intro: string;
+  tasks: string[];
+  requirements: string[];
+  benefits?: string[];
+}): string {
+  return (
+    "<h3>CODARI – Personalberatung IT &amp; Engineering</h3>" +
+    "<p>" + esc(params.intro) + "</p>" +
+    "<h4>IHRE AUFGABEN</h4>" + list(params.tasks) +
+    "<h4>WAS SIE MITBRINGEN</h4>" + list(params.requirements) +
+    "<h4>DAS BIETET UNSER MANDANT</h4>" + list(params.benefits?.length ? params.benefits : STANDARD_BENEFITS) +
+    ANSPRECHPARTNER +
+    GLEICHSTELLUNG
+  );
+}
+
+function isoDate(d?: string): string {
+  const base = d && /^\d{4}-\d{2}-\d{2}/.test(d) ? d.slice(0, 10) : new Date().toISOString().slice(0, 10);
+  return base + "T00:00:00.000Z";
+}
+
+/**
+ * Legt einen Standort an der Sammelfirma an. location_types ist Pflicht.
+ * Koordinaten sind optional, sorgen aber fuer einen sauberen Kartenpin.
+ */
+async function ensureSpecLocation(params: {
+  city: string;
+  postCode?: string;
+  latitude?: number;
+  longitude?: number;
+}) {
+  const key = normalizeCity(params.city);
+  if (SPEC_LOCATIONS[key]) {
+    return { ok: true, id: SPEC_LOCATIONS[key], created: false };
+  }
+
+  const fields: Record<string, unknown> = {
+    location_name: params.city,
+    city: params.city,
+    country_code: "DE",
+    location_types: ["WORKPLACE"],
+  };
+  if (params.postCode) fields.post_code = params.postCode;
+  if (typeof params.latitude === "number") fields.latitude = params.latitude;
+  if (typeof params.longitude === "number") fields.longitude = params.longitude;
+
+  const { createCompanyLocation } = await import("@/lib/vincere");
+  const res = await createCompanyLocation(SPEC_COMPANY_ID, fields);
+  const id = res?.data?.id ?? null;
+  if (!res?.ok || !id) {
+    return { ok: false, id: null, created: false, status: res?.status, data: res?.data };
+  }
+  SPEC_LOCATIONS[key] = id; // nur fuer die Laufzeit; dauerhaft gehoert die ID in die Tabelle oben
+  return { ok: true, id, created: true };
+}
+
+/**
+ * Legt eine spekulative Stellenanzeige an.
+ *
+ * Hinweis zum internen Recruiter: Der laesst sich ueber diesen Endpunkt nicht
+ * setzen und wird in Vincere per Massenbearbeitung nachgetragen.
+ *
+ * Hinweis zu Duplikaten: Vincere lehnt Anzeigen mit identischem Titel, Open Date
+ * und Kontakt ab (errorCode DUPLICATED). Das ist erwuenscht. Soll bewusst eine
+ * zweite Anzeige gleichen Titels entstehen, ein anderes openDate waehlen.
+ */
+async function createSpeculativeJob(params: {
+  city: string;
+  jobTitle: string;
+  intro: string;
+  tasks: string[];
+  requirements: string[];
+  benefits?: string[];
+  internalNote: string;
+  minPay: number;
+  maxPay: number;
+  currency?: string;
+  openDate?: string;
+  postCode?: string;
+  latitude?: number;
+  longitude?: number;
+}) {
+  if (!params.city || !params.jobTitle) {
+    return { ok: false, error: "city und jobTitle sind Pflicht." };
+  }
+  if (!params.tasks?.length || !params.requirements?.length) {
+    return { ok: false, error: "tasks und requirements duerfen nicht leer sein." };
+  }
+  if (!(params.minPay > 0) || !(params.maxPay > params.minPay)) {
+    return { ok: false, error: "minPay und maxPay muessen plausibel sein (maxPay groesser minPay)." };
+  }
+
+  const loc = await ensureSpecLocation({
+    city: params.city,
+    postCode: params.postCode,
+    latitude: params.latitude,
+    longitude: params.longitude,
+  });
+  if (!loc.ok) {
+    return {
+      ok: false,
+      error:
+        "Standort fuer " + params.city + " konnte nicht angelegt werden. " +
+        "Bekannte Staedte: " + Object.keys(SPEC_LOCATIONS).join(", "),
+      details: loc,
+    };
+  }
+
+  const date = isoDate(params.openDate);
+
+  const fields: Record<string, unknown> = {
+    job_title: params.jobTitle,
+    company_id: SPEC_COMPANY_ID,
+    contact_id: SPEC_CONTACT_ID,
+    company_location_id: loc.id,
+    registration_date: date,
+    open_date: date,
+    job_type: "PERMANENT",
+    employment_type: "FULL_TIME",
+    compensation: {
+      pay_type: "SALARY",
+      min_pay: params.minPay,
+      max_pay: params.maxPay,
+      currency: params.currency || "EUR",
+    },
+    internal_description:
+      "SPEKULATIVE ANZEIGE – Kandidatengewinnung, kein konkretes Mandat.\n" +
+      "Region: " + params.city + "\n" +
+      "Zielgehalt: " + params.minPay.toLocaleString("de-DE") + " – " +
+      params.maxPay.toLocaleString("de-DE") + " " + (params.currency || "EUR") + " p.a.\n\n" +
+      params.internalNote,
+    public_description: buildPublicDescription({
+      intro: params.intro,
+      tasks: params.tasks,
+      requirements: params.requirements,
+      benefits: params.benefits,
+    }),
+  };
+
+  const { testCreateVincereJob } = await import("@/lib/vincere");
+  const res = await testCreateVincereJob(fields, "/api/v2/position");
+
+  if (!res?.ok) {
+    const duplicate = res?.data?.errorCode === "DUPLICATED";
+    return {
+      ok: false,
+      duplicate,
+      error: duplicate
+        ? "Es gibt bereits eine Anzeige mit diesem Titel, Open Date und Kontakt. " +
+          "Fuer eine bewusste Zweitanzeige ein anderes openDate waehlen."
+        : "Vincere hat die Anzeige abgelehnt.",
+      status: res?.status,
+      data: res?.data,
+    };
+  }
+
+  return {
+    ok: true,
+    jobId: res?.data?.id ?? null,
+    city: params.city,
+    locationId: loc.id,
+    locationCreated: loc.created,
+    openDate: date,
+    hint: "Interner Recruiter ist nicht gesetzt – in Vincere per Massenbearbeitung nachtragen.",
+  };
+}
+
+export const createSpeculativeJobTool = tool({
+  description:
+    "Legt eine spekulative Stellenanzeige in Vincere an (Kandidatengewinnung ohne konkretes Kundenmandat). " +
+    "Erzeugt die oeffentliche Beschreibung automatisch im CODARI-Hausformat: Sie-Form, Abschnitte IHRE AUFGABEN, " +
+    "WAS SIE MITBRINGEN, DAS BIETET UNSER MANDANT, IHR ANSPRECHPARTNER, GLEICHSTELLUNG. Standort, Sammelfirma, " +
+    "Kontakt und Pflichtfelder setzt das Tool selbst. Nutze IMMER dieses Tool fuer spekulative Anzeigen, nie " +
+    "testCreateVincereJob von Hand. Gib das Gehalt nur ueber minPay/maxPay an - es erscheint bewusst nicht im " +
+    "oeffentlichen Text.",
+  inputSchema: z.object({
+    city: z.string().describe("Stadt, z.B. Leipzig. Bekannte Staedte haben bereits einen Standort."),
+    jobTitle: z.string().describe("Vollstaendiger Titel inkl. (m/w/d) und Stadt, z.B. 'DevOps Engineer (m/w/d) – Leipzig'"),
+    intro: z.string().describe("Ein Absatz zum Mandanten und zur Rolle. Allgemein halten, aber nicht wie ein Platzhalter klingen."),
+    tasks: z.array(z.string()).describe("Sechs bis sieben Aufgaben"),
+    requirements: z.array(z.string()).describe("Sechs bis sieben Anforderungen"),
+    benefits: z.array(z.string()).optional().describe("Fuenf bis sechs Punkte. Weglassen nutzt den CODARI-Standard."),
+    internalNote: z.string().describe("Interne Screening-Kriterien fuer das Telefoninterview. Nicht oeffentlich."),
+    minPay: z.number(),
+    maxPay: z.number(),
+    currency: z.string().optional(),
+    openDate: z.string().optional().describe("YYYY-MM-DD. Nur noetig, wenn bewusst eine Zweitanzeige gleichen Titels entstehen soll."),
+    postCode: z.string().optional().describe("Nur noetig bei einer Stadt ohne bestehenden Standort"),
+    latitude: z.number().optional(),
+    longitude: z.number().optional(),
+  }),
+  execute: async (params) => {
+    try {
+      return await createSpeculativeJob(params);
+    } catch (e) {
+      return { error: e.message };
+    }
+  },
+});
+
 export const allTools = {
   saveCandidate: saveCandidateTool,
   searchCandidates: searchCandidatesTool,
@@ -618,4 +912,5 @@ export const allTools = {
   backfillVincereCompany: backfillVincereCompanyTool,
   testVincereLocationApi: testVincereLocationApiTool,
   testCreateVincereJob: testCreateVincereJobTool,
+  createSpeculativeJob: createSpeculativeJobTool,
 };
