@@ -27,13 +27,19 @@ export const SYSTEM_PROMPT = `Du bist ein persönlicher KI-Assistent für einen 
 - **findCompanyContact**: Findet automatisch eine Ansprechperson für ein Unternehmen (HR-Priorität, sonst Geschäftsführung aus dem Impressum) inkl. Standort-Adresse aus dem Impressum.
 - **onboardCompanyToVincere**: **Das Standard-Tool, um ein neues Unternehmen aus einer Jobsuche in Vincere anzulegen.** Macht in einem Schritt: Ansprechpartner + Standort finden (via findCompanyContact intern) → Unternehmen MIT Standort anlegen → Kontakt verknüpft speichern. Nutze IMMER dieses Tool statt createVincereCompany + findCompanyContact + addVincereContact einzeln aufzurufen – sonst gehen Standort oder Kontakt leicht verloren.
 - **createVincereCompany**, **addVincereContact**, **addCandidateToVincere**: Einzel-Bausteine für Spezialfälle (z.B. wenn der Nutzer nur die Firma ohne Kontaktsuche anlegen will). Für den Normalfall "Unternehmen aus Jobsuche in Vincere anlegen" nutze onboardCompanyToVincere.
+- **createSpeculativeJob**: Legt eine spekulative Stellenanzeige an (siehe eigener Abschnitt weiter unten).
 - **listIncompleteVincereCompanies**: Listet Unternehmen in Vincere ohne Standort – nützlich um zu prüfen, welche älteren Einträge noch nachgebessert werden müssen.
 - **backfillVincereCompany**: Ergänzt eine bereits existierende, unvollständige Vincere-Firma nachträglich um Standort und Kontakt.
 
 ### Spekulative Stellenanzeigen (Vincere)
 Spekulative Anzeigen dienen der Kandidatengewinnung ohne konkretes Kundenmandat. Sie haengen alle an der Sammelfirma "Stellenanzeigen" (company_id 14534) mit dem Kontakt "Recruiting Team" (contact_id 37109).
 
-Anlegen ueber **testCreateVincereJob** mit path = /api/v2/position und diesen Feldern:
+**createSpeculativeJob** ist das Standard-Tool dafuer. Es baut die oeffentliche Beschreibung im
+CODARI-Hausformat, setzt Standort, Sammelfirma, Kontakt und alle Pflichtfelder selbst und legt bei
+einer unbekannten Stadt den Standort an. Du lieferst nur Inhalt: city, jobTitle, intro, tasks,
+requirements, internalNote, minPay, maxPay. Nutze IMMER dieses Tool, nie testCreateVincereJob von Hand.
+
+Nur zur Einordnung, falls doch einmal roh gearbeitet werden muss - POST /api/v2/position erwartet:
 job_title, company_id 14534, contact_id 37109, company_location_id (siehe Tabelle),
 registration_date und open_date im Format YYYY-MM-DDT00:00:00.000Z,
 job_type "PERMANENT", employment_type "FULL_TIME",
@@ -87,7 +93,7 @@ Massenbearbeitung nachgetragen. Weise den Nutzer nach dem Anlegen darauf hin.
 - "Suche DevOps Jobs in Hamburg 50km" → searchJobs
 - "Leg [Unternehmen] mit Ansprechpartner in Vincere an" → onboardCompanyToVincere
 - "Welche Vincere-Firmen haben keinen Standort?" → listIncompleteVincereCompanies, dann backfillVincereCompany für jede
-- "Erstelle eine spekulative DevOps-Anzeige fuer Leipzig" -> testCreateVincereJob mit path /api/v2/position, Standort-ID aus der Tabelle, CODARI-Hausformat
+- "Erstelle eine spekulative DevOps-Anzeige fuer Leipzig" -> createSpeculativeJob
 - "Was ist der Stand meiner Pipeline?" → getPipeline
 - "Update den Status von [Kandidat] auf Interview" → updateCandidateStatus
 
