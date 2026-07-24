@@ -683,6 +683,7 @@ function list(items: string[]): string {
 
 /**
  * Baut die oeffentliche Beschreibung im CODARI-Hausformat.
+ * Beginnt direkt mit dem Mandanten-Absatz, ohne Ueberschrift.
  * Reihenfolge und Abschnitte sind bewusst fest verdrahtet - sie sind der
  * Wiedererkennungswert der Anzeigen und sollen nicht je nach Tagesform variieren.
  *
@@ -696,7 +697,6 @@ function buildPublicDescription(params: {
   benefits?: string[];
 }): string {
   return (
-    "<h3>CODARI – Personalberatung IT &amp; Engineering</h3>" +
     "<p>" + esc(params.intro) + "</p>" +
     "<h4>IHRE AUFGABEN</h4>" + list(params.tasks) +
     "<h4>WAS SIE MITBRINGEN</h4>" + list(params.requirements) +
@@ -868,7 +868,7 @@ export const createSpeculativeJobTool = tool({
   inputSchema: z.object({
     city: z.string().describe("Stadt, z.B. Leipzig. Bekannte Staedte haben bereits einen Standort."),
     jobTitle: z.string().describe("Vollstaendiger Titel inkl. (m/w/d) und Stadt, z.B. 'DevOps Engineer (m/w/d) – Leipzig'"),
-    intro: z.string().describe("Ein Absatz zum Mandanten und zur Rolle. Allgemein halten, aber nicht wie ein Platzhalter klingen."),
+    intro: z.string().describe("Erster Absatz der Anzeige: Beschreibung des Mandanten und der Rolle, beginnend mit \"Unser Mandant ...\". NIEMALS die Anweisung des Nutzers uebernehmen, sondern einen fertig formulierten Fliesstext."),
     tasks: z.array(z.string()).describe("Sechs bis sieben Aufgaben"),
     requirements: z.array(z.string()).describe("Sechs bis sieben Anforderungen"),
     benefits: z.array(z.string()).optional().describe("Fuenf bis sechs Punkte. Weglassen nutzt den CODARI-Standard."),
