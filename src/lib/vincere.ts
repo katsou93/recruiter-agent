@@ -171,10 +171,20 @@ export async function createVincereCompany(params: {
       const parsedAddr = parseFullAddress(params.address);
       if (companyId && (parsedAddr || params.city)) {
               const locationName = parsedAddr?.city || params.city || params.name;
-              const locPayload: Record<string, unknown> = { location_name: locationName, country: "Germany" };
-              if (parsedAddr?.address1) locPayload.address1 = parsedAddr.address1;
+              // FIX: Feldnamen an das echte Vincere-Schema angeglichen (aus der OpenAPI-Spec).
+              // Vorher: "country"/"postcode"/"address1" - diese Felder existieren dort nicht und
+              // wurden verworfen. Richtig sind country_code (ISO alpha-2), post_code, address_line1.
+              // FIX: location_types ist PFLICHT. Fehlt es, antwortet Vincere mit einem
+              // nichtssagenden 500er statt einer Feldmeldung - genau daran sind alle bisherigen
+              // Standort-Anlagen gescheitert.
+              const locPayload: Record<string, unknown> = {
+                      location_name: locationName,
+                      country_code: "DE",
+                      location_types: ["HEADQUARTER"],
+              };
+              if (parsedAddr?.address1) locPayload.address_line1 = parsedAddr.address1;
               if (parsedAddr?.city || params.city) locPayload.city = parsedAddr?.city || params.city;
-              if (parsedAddr?.postcode || params.postcode) locPayload.postcode = parsedAddr?.postcode || params.postcode;
+              if (parsedAddr?.postcode || params.postcode) locPayload.post_code = parsedAddr?.postcode || params.postcode;
               try {
                       const locRes = await vincereFetch(`/api/v2/company/${companyId}/location`, {
                             method: "POST",
